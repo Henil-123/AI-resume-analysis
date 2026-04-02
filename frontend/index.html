@@ -37,8 +37,15 @@ html,body{height:100%;font-family:'Inter',sans-serif;background:var(--bg);color:
 .navitem{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:var(--r);color:var(--text2);font-size:13px;font-weight:500;cursor:pointer;transition:all .15s;margin-bottom:2px;border:none;background:transparent;width:100%;text-align:left;}
 .navitem:hover{background:var(--bg);color:var(--text);}
 .navitem.active{background:var(--primary-l);color:var(--primary);font-weight:600;}
-.navitem .ni{font-size:16px;width:20px;text-align:center;}
+.navitem .ni{font-size:16px;width:20px;text-align:center;display:inline-flex;align-items:center;justify-content:center;}
+.navitem .ni svg{width:18px;height:18px;}
 .nav-section{font-size:10px;font-weight:600;color:var(--text3);letter-spacing:.06em;text-transform:uppercase;padding:12px 10px 4px;}
+.icon{display:inline-flex;align-items:center;justify-content:center;vertical-align:middle;}
+.icon svg{width:1em;height:1em;}
+.stat-icon svg{width:20px;height:20px;}
+.uz-icon svg{width:28px;height:28px;}
+.tbtn svg,.sc-btn svg,.bulk-btn svg,.print-btn svg,.run-btn svg,.action-btn svg,.edit-req-btn svg{width:14px;height:14px;vertical-align:middle;}
+.rc-title svg,.dc-title svg,.sc-title svg,.br-title svg,.fc-title svg,.jc-title svg,.tab svg{width:14px;height:14px;vertical-align:middle;margin-right:2px;}
 .nav-divider{height:1px;background:var(--border);margin:8px 10px;}
 .user-area{padding:12px 16px;border-top:1px solid var(--border);display:flex;align-items:center;gap:10px;}
 .user-av{width:30px;height:30px;border-radius:50%;background:var(--primary);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;color:#fff;flex-shrink:0;}
@@ -371,18 +378,18 @@ input[type=file]{display:none;}
     </div>
     <div class="navlist">
       <div class="nav-section">Main</div>
-      <button class="navitem" onclick="goNav('overview',this)"><span class="ni">📊</span>Overview</button>
-      <button class="navitem active" onclick="goNav('candidates',this)"><span class="ni">👥</span>Candidates</button>
-      <button class="navitem" onclick="goNav('analysis',this)"><span class="ni">🔍</span>Analyze Resume</button>
+      <button class="navitem" onclick="goNav('overview',this)"><span class="ni"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="12" width="4" height="9" rx="1"/><rect x="10" y="8" width="4" height="13" rx="1"/><rect x="17" y="4" width="4" height="17" rx="1"/></svg></span>Overview</button>
+      <button class="navitem active" onclick="goNav('candidates',this)"><span class="ni"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></span>Candidates</button>
+      <button class="navitem" onclick="goNav('analysis',this)"><span class="ni"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg></span>Analyze Resume</button>
       <div class="nav-divider"></div>
       <div class="nav-section">Filters</div>
-      <button class="navitem" onclick="filterStatus('Strong Match')"><span class="ni">⭐</span>Strong Matches</button>
-      <button class="navitem" onclick="filterStatus('Good Match')"><span class="ni">✅</span>Good Matches</button>
-      <button class="navitem" onclick="filterStatus('Weak Match')"><span class="ni">⚠️</span>Needs Review</button>
+      <button class="navitem" onclick="filterStatus('Strong Match')"><span class="ni"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg></span>Strong Matches</button>
+      <button class="navitem" onclick="filterStatus('Good Match')"><span class="ni"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><path d="m9 11 3 3L22 4"/></svg></span>Good Matches</button>
+      <button class="navitem" onclick="filterStatus('Weak Match')"><span class="ni"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg></span>Needs Review</button>
       <div class="nav-divider"></div>
       <div class="nav-section">Settings</div>
-      <button class="navitem" onclick="goNav('settings',this)"><span class="ni">⚙️</span>Settings</button>
-      <button class="navitem" onclick="clearAll()"><span class="ni">🗑</span>Clear All Data</button>
+      <button class="navitem" onclick="goNav('settings',this)"><span class="ni"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg></span>Settings</button>
+      <button class="navitem" onclick="clearAll()"><span class="ni"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></svg></span>Clear All Data</button>
     </div>
     <div class="user-area">
       <div class="user-av">HR</div>
@@ -400,8 +407,8 @@ input[type=file]{display:none;}
       </div>
       <div class="topbar-right">
         <div class="api-status"><div class="dot" id="api-dot"></div><span id="api-txt">Checking...</span></div>
-        <button class="tbtn" onclick="loadCands()">↺ Refresh</button>
-        <button class="tbtn tbtn-primary" onclick="goNav('analysis', document.querySelector('.navitem:nth-child(3)'))">+ Analyze Resume</button>
+        <button class="tbtn" onclick="loadCands()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M3 21v-5h5"/></svg> Refresh</button>
+        <button class="tbtn tbtn-primary" onclick="goNav('analysis', document.querySelector('.navitem:nth-child(3)'))"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5v14"/></svg> Analyze Resume</button>
       </div>
     </div>
 
@@ -415,10 +422,10 @@ input[type=file]{display:none;}
         </div>
         <!-- Stats -->
         <div class="stats-row" id="ov-stats">
-          <div class="stat-card"><div class="stat-top"><div class="stat-icon" style="background:#e8f5ee">👥</div><span class="stat-trend">Total</span></div><div class="stat-val" id="ov-total">—</div><div class="stat-lbl">Candidates</div></div>
-          <div class="stat-card"><div class="stat-top"><div class="stat-icon" style="background:#d1fae5">⭐</div><span class="stat-trend" style="color:var(--green)">Strong</span></div><div class="stat-val" id="ov-strong" style="color:var(--primary)">—</div><div class="stat-lbl">Strong Matches</div></div>
-          <div class="stat-card"><div class="stat-top"><div class="stat-icon" style="background:#dbeafe">📈</div><span class="stat-trend" style="color:var(--blue)">Avg</span></div><div class="stat-val" id="ov-avg" style="color:var(--blue)">—</div><div class="stat-lbl">Average Score</div></div>
-          <div class="stat-card"><div class="stat-top"><div class="stat-icon" style="background:#fef3c7">🎯</div><span class="stat-trend" style="color:var(--accent)">Rate</span></div><div class="stat-val" id="ov-rate" style="color:var(--accent)">—</div><div class="stat-lbl">Match Rate</div></div>
+          <div class="stat-card"><div class="stat-top"><div class="stat-icon" style="background:#e8f5ee;color:var(--primary)"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></div><span class="stat-trend">Total</span></div><div class="stat-val" id="ov-total">—</div><div class="stat-lbl">Candidates</div></div>
+          <div class="stat-card"><div class="stat-top"><div class="stat-icon" style="background:#d1fae5;color:var(--green)"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg></div><span class="stat-trend" style="color:var(--green)">Strong</span></div><div class="stat-val" id="ov-strong" style="color:var(--primary)">—</div><div class="stat-lbl">Strong Matches</div></div>
+          <div class="stat-card"><div class="stat-top"><div class="stat-icon" style="background:#dbeafe;color:var(--blue)"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg></div><span class="stat-trend" style="color:var(--blue)">Avg</span></div><div class="stat-val" id="ov-avg" style="color:var(--blue)">—</div><div class="stat-lbl">Average Score</div></div>
+          <div class="stat-card"><div class="stat-top"><div class="stat-icon" style="background:#fef3c7;color:var(--accent)"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg></div><span class="stat-trend" style="color:var(--accent)">Rate</span></div><div class="stat-val" id="ov-rate" style="color:var(--accent)">—</div><div class="stat-lbl">Match Rate</div></div>
         </div>
 
         <div class="dash-grid">
@@ -463,7 +470,7 @@ input[type=file]{display:none;}
               <div class="fc-title">Filters <span class="fc-clear" onclick="clearFilters()">Clear all</span></div>
               <div class="filter-section">
                 <div class="search-box">
-                  <span>🔍</span>
+                  <span style="color:var(--text3)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg></span>
                   <input type="text" id="cand-search" placeholder="Search candidates..." oninput="applyFilters()"/>
                 </div>
               </div>
@@ -508,14 +515,14 @@ input[type=file]{display:none;}
             <div class="bulk-bar" id="bulk-bar">
               <span id="bulk-count">0 selected</span>
               <div class="bulk-bar-btns">
-                <button class="bulk-btn" onclick="bulkDelete()">🗑 Delete Selected</button>
-                <button class="bulk-btn" onclick="clearSelection()">✕ Clear</button>
+                <button class="bulk-btn" onclick="bulkDelete()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg> Delete Selected</button>
+                <button class="bulk-btn" onclick="clearSelection()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg> Clear</button>
               </div>
             </div>
 
             <div class="table-toolbar">
               <div class="tt-search">
-                <span style="color:var(--text3)">🔍</span>
+                <span style="color:var(--text3)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg></span>
                 <input type="text" placeholder="Search by name, email, skills..." id="table-search" oninput="applyFilters()"/>
               </div>
               <select class="sort-select" onchange="sortCands(this.value)">
@@ -524,7 +531,7 @@ input[type=file]{display:none;}
                 <option value="exp">Sort by Experience</option>
                 <option value="date">Sort by Date</option>
               </select>
-              <button class="tbtn tbtn-danger" onclick="clearAll()" style="padding:7px 12px;font-size:12px;">🗑 Clear All</button>
+              <button class="tbtn tbtn-danger" onclick="clearAll()" style="padding:7px 12px;font-size:12px;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg> Clear All</button>
             </div>
 
             <div class="data-table-wrap">
@@ -545,10 +552,10 @@ input[type=file]{display:none;}
 
         <!-- Upload zone -->
         <div class="upload-zone-sm" id="dz" onclick="document.getElementById('file-in').click()">
-          <div class="uz-icon">📂</div>
+          <div class="uz-icon"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2"/></svg></div>
           <div class="uz-title">Drop resumes or click to browse</div>
           <div class="uz-hint">PDF · DOCX · TXT — Select multiple files at once</div>
-          <div class="uz-badge" id="uz-badge" style="display:none"><span>✓</span><span id="uz-fname"></span></div>
+          <div class="uz-badge" id="uz-badge" style="display:none"><span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></span><span id="uz-fname"></span></div>
         </div>
         <input type="file" id="file-in" accept=".pdf,.docx,.doc,.txt" multiple onchange="handleFiles(this)"/>
         <div class="file-list" id="file-list"></div>
@@ -570,8 +577,8 @@ input[type=file]{display:none;}
             <textarea id="r-jd" placeholder="Paste job description for best accuracy..."></textarea></div>
           <div class="alert alert-e" id="an-err"></div>
           <div style="display:flex;gap:10px;margin-top:16px;align-items:center">
-            <button class="run-btn" id="run-btn" onclick="doAnalyze()" style="margin-top:0;flex:1"><span>→ Run Analysis</span></button>
-            <button class="edit-req-btn" id="edit-req-btn" onclick="editRequirements()" style="display:none">✏️ Edit & Re-analyze</button>
+            <button class="run-btn" id="run-btn" onclick="doAnalyze()" style="margin-top:0;flex:1"><span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg> Run Analysis</span></button>
+            <button class="edit-req-btn" id="edit-req-btn" onclick="editRequirements()" style="display:none"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/></svg> Edit &amp; Re-analyze</button>
           </div>
         </div>
 
@@ -580,11 +587,11 @@ input[type=file]{display:none;}
           <div class="batch-results">
             <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
               <div>
-                <div class="br-title">📊 Analysis Complete</div>
+                <div class="br-title"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="12" width="4" height="9" rx="1"/><rect x="10" y="8" width="4" height="13" rx="1"/><rect x="17" y="4" width="4" height="17" rx="1"/></svg> Analysis Complete</div>
                 <div class="br-sub" id="batch-summary">0 resumes analyzed</div>
               </div>
               <div style="display:flex;gap:8px">
-                <button class="print-btn" onclick="printReport()">🖨️ Print Report</button>
+                <button class="print-btn" onclick="printReport()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><path d="M6 9V3a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v6"/><rect x="6" y="14" width="12" height="8" rx="1"/></svg> Print Report</button>
                 <button class="tbtn" onclick="document.getElementById('batch-panel').style.display='none'">✕ Close</button>
               </div>
             </div>
@@ -610,8 +617,8 @@ input[type=file]{display:none;}
           </div>
 
           <div class="res-grid">
-            <div class="res-card"><div class="rc-title">✓ Matched Skills</div><div id="res-matched"></div></div>
-            <div class="res-card"><div class="rc-title">✕ Missing Skills</div><div id="res-missing"></div></div>
+            <div class="res-card"><div class="rc-title"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg> Matched Skills</div><div id="res-matched"></div></div>
+            <div class="res-card"><div class="rc-title"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg> Missing Skills</div><div id="res-missing"></div></div>
           </div>
 
           <div class="charts-row">
@@ -624,7 +631,7 @@ input[type=file]{display:none;}
             <div class="res-card">
               <div class="rc-title">Candidate Profile</div>
               <div id="res-profile"></div>
-              <div style="margin-top:12px"><div class="rc-title">💡 AI Recommendation</div><div id="res-reco"></div></div>
+              <div style="margin-top:12px"><div class="rc-title"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5"/><path d="M9 18h6"/><path d="M10 22h4"/></svg> AI Recommendation</div><div id="res-reco"></div></div>
             </div>
           </div>
         </div>
@@ -632,12 +639,12 @@ input[type=file]{display:none;}
 
       <!-- ══════════ SETTINGS TAB ══════════ -->
       <div id="tab-settings" style="display:none">
-        <div class="tabs"><div class="tab on">⚙️ Settings</div></div>
+        <div class="tabs"><div class="tab on"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg> Settings</div></div>
 
         <div class="settings-grid">
           <!-- API Configuration -->
           <div class="settings-card">
-            <div class="sc-title">🔗 API Configuration</div>
+            <div class="sc-title"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg> API Configuration</div>
             <div class="sc-sub">Configure connection to the backend server</div>
             <div class="sc-row">
               <div class="sc-label">API Base URL</div>
@@ -648,24 +655,24 @@ input[type=file]{display:none;}
               <div id="set-api-status" style="font-size:13px;color:var(--text2)">Checking...</div>
             </div>
             <div style="margin-top:12px;display:flex;align-items:center">
-              <button class="sc-btn sc-btn-primary" onclick="saveApiUrl()">💾 Save & Test</button>
-              <span class="sc-saved" id="api-saved">✓ Saved</span>
+              <button class="sc-btn sc-btn-primary" onclick="saveApiUrl()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15.2 3a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M17 21v-7a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v7"/><path d="M7 3v4a1 1 0 0 0 1 1h7"/></svg> Save &amp; Test</button>
+              <span class="sc-saved" id="api-saved"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg> Saved</span>
             </div>
           </div>
 
           <!-- Weight Profile -->
           <div class="settings-card">
-            <div class="sc-title">⚖️ Scoring Profile</div>
+            <div class="sc-title"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m16 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z"/><path d="m2 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z"/><path d="M7 21h10"/><path d="M12 3v18"/><path d="M3 7h2c2 0 5-1 7-2 2 1 5 2 7 2h2"/></svg> Scoring Profile</div>
             <div class="sc-sub">Choose how candidates are scored (affects new analyses)</div>
             <div id="profile-cards"></div>
             <div style="margin-top:8px">
-              <span class="sc-saved" id="profile-saved">✓ Profile selected</span>
+              <span class="sc-saved" id="profile-saved"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg> Profile selected</span>
             </div>
           </div>
 
           <!-- Default Job Requirements -->
           <div class="settings-card">
-            <div class="sc-title">📋 Default Job Requirements</div>
+            <div class="sc-title"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="8" height="4" x="8" y="2" rx="1" ry="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/></svg> Default Job Requirements</div>
             <div class="sc-sub">Pre-fill these values when analyzing new resumes</div>
             <div class="sc-row">
               <div class="sc-label">Default Required Skills</div>
@@ -684,27 +691,27 @@ input[type=file]{display:none;}
               <textarea class="sc-input" id="set-jd" style="resize:vertical;min-height:70px" placeholder="Paste default job description..."></textarea>
             </div>
             <div style="margin-top:12px;display:flex;align-items:center">
-              <button class="sc-btn sc-btn-primary" onclick="saveDefaults()">💾 Save Defaults</button>
-              <button class="sc-btn" onclick="applyDefaults()" style="margin-left:8px">📥 Apply to Analyze Tab</button>
-              <span class="sc-saved" id="defaults-saved">✓ Saved</span>
+              <button class="sc-btn sc-btn-primary" onclick="saveDefaults()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15.2 3a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M17 21v-7a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v7"/><path d="M7 3v4a1 1 0 0 0 1 1h7"/></svg> Save Defaults</button>
+              <button class="sc-btn" onclick="applyDefaults()" style="margin-left:8px"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></svg> Apply to Analyze Tab</button>
+              <span class="sc-saved" id="defaults-saved"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg> Saved</span>
             </div>
           </div>
 
           <!-- Data Management -->
           <div class="settings-card">
-            <div class="sc-title">🗄️ Data Management</div>
+            <div class="sc-title"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5V19A9 3 0 0 0 21 19V5"/><path d="M3 12A9 3 0 0 0 21 12"/></svg> Data Management</div>
             <div class="sc-sub">Manage candidate data and exports</div>
             <div class="sc-row">
-              <button class="sc-btn" onclick="window.open(API+'/export/csv','_blank')" style="width:100%;justify-content:center">📊 Export All Candidates (CSV)</button>
+              <button class="sc-btn" onclick="window.open(API+'/export/csv','_blank')" style="width:100%;justify-content:center"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="12" width="4" height="9" rx="1"/><rect x="10" y="8" width="4" height="13" rx="1"/><rect x="17" y="4" width="4" height="17" rx="1"/></svg> Export All Candidates (CSV)</button>
             </div>
             <div class="sc-row">
-              <button class="sc-btn" onclick="window.open(API+'/export/csv?status=shortlisted','_blank')" style="width:100%;justify-content:center">⭐ Export Shortlisted Only (CSV)</button>
+              <button class="sc-btn" onclick="window.open(API+'/export/csv?status=shortlisted','_blank')" style="width:100%;justify-content:center"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg> Export Shortlisted Only (CSV)</button>
             </div>
             <div class="sc-row">
-              <button class="sc-btn" onclick="loadCands()" style="width:100%;justify-content:center">↺ Refresh Candidate Data</button>
+              <button class="sc-btn" onclick="loadCands()" style="width:100%;justify-content:center"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M3 21v-5h5"/></svg> Refresh Candidate Data</button>
             </div>
             <div class="sc-row" style="border-top:1px solid var(--border);padding-top:14px;margin-top:14px">
-              <button class="sc-btn sc-btn-danger" onclick="clearAll()" style="width:100%;justify-content:center">🗑 Clear All Candidate Data</button>
+              <button class="sc-btn sc-btn-danger" onclick="clearAll()" style="width:100%;justify-content:center"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg> Clear All Candidate Data</button>
             </div>
             <div class="sc-row" style="margin-top:14px">
               <div class="sc-label">App Info</div>
@@ -730,6 +737,38 @@ let API = '';
 let allCands = [], filteredCands = [], selectedIds = new Set();
 let curPage = 1; const perPage = 15;
 let radarI = null, pieI = null, distI = null, eduI = null;
+
+// ── SVG Icons ─────────────────────────────────────────────
+const ICONS = {
+  chart: '<svg width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="12" width="4" height="9" rx="1"/><rect x="10" y="8" width="4" height="13" rx="1"/><rect x="17" y="4" width="4" height="17" rx="1"/></svg>',
+  users: '<svg width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>',
+  search: '<svg width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>',
+  star: '<svg width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>',
+  checkCircle: '<svg width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><path d="m9 11 3 3L22 4"/></svg>',
+  alertTri: '<svg width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>',
+  gear: '<svg width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>',
+  trash: '<svg width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></svg>',
+  refresh: '<svg width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M3 21v-5h5"/></svg>',
+  trendUp: '<svg width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg>',
+  target: '<svg width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>',
+  folder: '<svg width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2"/></svg>',
+  fileText: '<svg width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/></svg>',
+  xIcon: '<svg width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>',
+  check: '<svg width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>',
+  printer: '<svg width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><path d="M6 9V3a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v6"/><rect x="6" y="14" width="12" height="8" rx="1"/></svg>',
+  edit: '<svg width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/></svg>',
+  link: '<svg width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>',
+  scale: '<svg width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m16 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z"/><path d="m2 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z"/><path d="M7 21h10"/><path d="M12 3v18"/><path d="M3 7h2c2 0 5-1 7-2 2 1 5 2 7 2h2"/></svg>',
+  clipboard: '<svg width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="8" height="4" x="8" y="2" rx="1" ry="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/></svg>',
+  database: '<svg width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5V19A9 3 0 0 0 21 19V5"/><path d="M3 12A9 3 0 0 0 21 12"/></svg>',
+  save: '<svg width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15.2 3a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M17 21v-7a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v7"/><path d="M7 3v4a1 1 0 0 0 1 1h7"/></svg>',
+  download: '<svg width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></svg>',
+  plus: '<svg width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5v14"/></svg>',
+  arrowRight: '<svg width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>',
+  lightbulb: '<svg width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5"/><path d="M9 18h6"/><path d="M10 22h4"/></svg>',
+  spinner: '<svg width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v4"/><path d="m16.2 7.8 2.9-2.9"/><path d="M18 12h4"/><path d="m16.2 16.2 2.9 2.9"/><path d="M12 18v4"/><path d="m4.9 19.1 2.9-2.9"/><path d="M2 12h4"/><path d="m4.9 4.9 2.9 2.9"/></svg>',
+  export: '<svg width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6"/><path d="M12 18v-6"/><path d="m9 15 3 3 3-3"/></svg>',
+};
 
 // ── Nav ───────────────────────────────────────────────────
 function goNav(tab, btn) {
@@ -780,7 +819,7 @@ async function loadCands() {
     updateFilterCounts();
     renderTable();
   } catch {
-    document.getElementById('table-body').innerHTML = '<div class="empty"><div class="empty-icon">⚠️</div><div class="empty-title">Cannot connect to backend</div><div class="empty-sub">Run: cd backend && python app.py</div></div>';
+    document.getElementById('table-body').innerHTML = '<div class="empty"><div class="empty-icon">' + ICONS.alertTri + '</div><div class="empty-title">Cannot connect to backend</div><div class="empty-sub">Run: cd backend && python app.py</div></div>';
   }
 }
 
@@ -874,7 +913,7 @@ function renderTable() {
   const pageData = filteredCands.slice(start, start + perPage);
 
   if (!total) {
-    document.getElementById('table-body').innerHTML = '<div class="empty"><div class="empty-icon">👥</div><div class="empty-title">No candidates found</div><div class="empty-sub">Try adjusting your filters</div></div>';
+    document.getElementById('table-body').innerHTML = '<div class="empty"><div class="empty-icon">' + ICONS.users + '</div><div class="empty-title">No candidates found</div><div class="empty-sub">Try adjusting your filters</div></div>';
     document.getElementById('pagination').style.display = 'none';
     return;
   }
@@ -973,7 +1012,7 @@ async function loadOverview() {
         <div class="rec-av" style="background:${avatarColor(c.name)}">${initials(c.name)}</div>
         <div><div class="rec-name">${c.name||'Unknown'}</div><div class="rec-sub">${c.education||'—'} · ${c.experience_years||0}y exp</div></div>
         <div class="rec-score">${c.final_score}%</div>
-      </div>`).join('') || '<div class="empty"><div class="empty-icon">👥</div><div class="empty-sub">No candidates yet</div></div>';
+      </div>`).join('') || '<div class="empty"><div class="empty-icon">' + ICONS.users + '</div><div class="empty-sub">No candidates yet</div></div>';
 
     // Top skills
     document.getElementById('ov-skills').innerHTML = (s.top_skills||[]).slice(0,8).map(({skill,count},i,arr) => `
@@ -1044,11 +1083,11 @@ function renderFileList() {
   document.getElementById('uz-fname').textContent = selFiles.length + ' file' + (selFiles.length > 1 ? 's' : '') + ' selected';
   el.innerHTML = selFiles.map((f, i) => `
     <div class="file-item" id="fi-${i}">
-      <span style="font-size:16px">📄</span>
+      <span style="font-size:16px">${ICONS.fileText}</span>
       <span class="fi-name">${f.name}</span>
       <span class="fi-size">${(f.size/1024).toFixed(0)} KB</span>
       <span class="fi-status" id="fi-status-${i}"></span>
-      <button class="fi-remove" onclick="removeFile(${i})" title="Remove">✕</button>
+      <button class="fi-remove" onclick="removeFile(${i})" title="Remove">${ICONS.xIcon}</button>
     </div>
   `).join('');
 }
@@ -1069,7 +1108,7 @@ function stopLoader() { clearInterval(lsTimer); document.getElementById('loader'
 async function doAnalyze() {
   const err = document.getElementById('an-err');
   err.classList.remove('on');
-  if (!selFiles.length) { err.textContent = '⚠ Please select at least one resume file.'; err.classList.add('on'); return; }
+  if (!selFiles.length) { err.textContent = ICONS.alertTri + ' Please select at least one resume file.'; err.classList.add('on'); return; }
 
   const btn = document.getElementById('run-btn');
   btn.disabled = true;
@@ -1090,10 +1129,10 @@ async function doAnalyze() {
     const fiEl = document.getElementById('fi-' + i);
 
     // Update UI
-    btn.querySelector('span').textContent = isMulti ? `Analyzing ${i+1} of ${total}...` : 'Analyzing...';
+    btn.querySelector('span').innerHTML = isMulti ? `${ICONS.spinner} Analyzing ${i+1} of ${total}...` : `${ICONS.spinner} Analyzing...`;
     if (fiEl) { fiEl.classList.add('processing'); fiEl.classList.remove('done','error'); }
     const statusEl = document.getElementById('fi-status-' + i);
-    if (statusEl) statusEl.innerHTML = '<span style="color:var(--primary)">⟳ Processing...</span>';
+    if (statusEl) statusEl.innerHTML = '<span style="color:var(--primary)">' + ICONS.refresh + ' Processing...</span>';
 
     // Progress bar
     if (isMulti) {
@@ -1112,45 +1151,63 @@ async function doAnalyze() {
     if (currentProfile) fd.append('profile', currentProfile);
 
     try {
-      const r = await fetch(API + '/analyze', { method: 'POST', body: fd });
-      const d = await r.json();
-      stopLoader();
+      // Add timeout to prevent infinite loading (55s — Vercel max is 60s)
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 55000);
+
+      const r = await fetch(API + '/analyze', { method: 'POST', body: fd, signal: controller.signal });
+      clearTimeout(timeoutId);
+
+      // Parse JSON safely — Vercel may return HTML on timeout
+      let d;
+      try {
+        d = await r.json();
+      } catch (parseErr) {
+        throw new Error('Server returned an invalid response (status ' + r.status + '). It may have timed out.');
+      }
 
       if (r.ok) {
         d._filename = file.name;
         batchResults.push(d);
         if (fiEl) fiEl.classList.replace('processing', 'done');
-        if (statusEl) statusEl.innerHTML = `<span style="color:var(--green)">✓ ${d.final_score}%</span>`;
+        if (statusEl) statusEl.innerHTML = `<span style="color:var(--green)">${ICONS.check} ${d.final_score}%</span>`;
         // Add to candidates list live
         allCands.unshift(d);
         filteredCands = [...allCands];
       } else {
         if (fiEl) fiEl.classList.replace('processing', 'error');
-        if (statusEl) statusEl.innerHTML = `<span style="color:var(--red)">✕ ${d.error || 'Failed'}</span>`;
+        if (statusEl) statusEl.innerHTML = `<span style="color:var(--red)">${ICONS.xIcon} ${d.error || 'Failed'}</span>`;
+        err.innerHTML = ICONS.alertTri + ' ' + (d.error || 'Analysis failed. Please try again.');
+        err.classList.add('on');
       }
     } catch (e) {
-      stopLoader();
       if (fiEl) fiEl.classList.replace('processing', 'error');
-      if (statusEl) statusEl.innerHTML = '<span style="color:var(--red)">✕ Network error</span>';
+      const isTimeout = e.name === 'AbortError';
+      if (statusEl) statusEl.innerHTML = `<span style="color:var(--red)">${ICONS.xIcon} ${isTimeout ? 'Timed out' : 'Error'}</span>`;
+      err.innerHTML = ICONS.alertTri + ' ' + (isTimeout
+        ? 'Analysis timed out. The server may be busy — please try again in a moment.'
+        : 'Network error: ' + e.message);
+      err.classList.add('on');
+    } finally {
+      // ALWAYS dismiss the loader, even on errors
+      stopLoader();
     }
   }
 
   // Complete
   if (isMulti) {
     document.getElementById('bp-fill').style.width = '100%';
-    document.getElementById('bp-text').textContent = `✓ All ${total} files processed`;
+    document.getElementById('bp-text').textContent = `${ICONS.check} All ${total} files processed`;
   }
 
   btn.disabled = false;
-  btn.querySelector('span').textContent = '→ Run Analysis';
+  btn.querySelector('span').innerHTML = ICONS.arrowRight + ' Run Analysis';
   document.getElementById('edit-req-btn').style.display = 'inline-flex';
 
   // Show results
   if (batchResults.length === 1) {
-    // Single file — show detailed result
     renderResult(batchResults[0]);
   } else if (batchResults.length > 1) {
-    // Multi file — show batch ranked summary
     renderBatchResults();
   }
 }
@@ -1194,7 +1251,7 @@ function printReport() {
   const printDiv = document.getElementById('print-report');
   printDiv.innerHTML = `
     <div class="print-header">
-      <h1>📊 AI Resume Analysis Report</h1>
+      <h1>${ICONS.chart} AI Resume Analysis Report</h1>
       <p>Generated: ${now} | Job: ${jobTitle} | Required Skills: ${reqSkills}</p>
       <p>${candidates.length} candidates ranked by match percentage</p>
     </div>
@@ -1259,8 +1316,8 @@ function renderResult(d) {
   document.getElementById('res-sem').textContent = d.semantic_score > 0 ? d.semantic_score + '%' : 'N/A';
   document.getElementById('res-exp2').textContent = d.experience_years + 'y';
 
-  document.getElementById('res-matched').innerHTML = d.matched_skills.length ? d.matched_skills.map(s=>`<span class="skill-pill" style="background:var(--green-l);color:#065f46;border:1px solid rgba(16,185,129,.2)">✓ ${s}</span>`).join('') : '<span style="color:var(--text3);font-size:12px">No required skills set</span>';
-  document.getElementById('res-missing').innerHTML = d.missing_skills.length ? d.missing_skills.map(s=>`<span class="skill-pill" style="background:var(--red-l);color:#b91c1c;border:1px solid rgba(239,68,68,.2)">✕ ${s}</span>`).join('') : '<span style="color:var(--green);font-size:12px">✓ All required skills present!</span>';
+  document.getElementById('res-matched').innerHTML = d.matched_skills.length ? d.matched_skills.map(s=>`<span class="skill-pill" style="background:var(--green-l);color:#065f46;border:1px solid rgba(16,185,129,.2)">${ICONS.check} ${s}</span>`).join('') : '<span style="color:var(--text3);font-size:12px">No required skills set</span>';
+  document.getElementById('res-missing').innerHTML = d.missing_skills.length ? d.missing_skills.map(s=>`<span class="skill-pill" style="background:var(--red-l);color:#b91c1c;border:1px solid rgba(239,68,68,.2)">${ICONS.xIcon} ${s}</span>`).join('') : '<span style="color:var(--green);font-size:12px">' + ICONS.check + ' All required skills present!</span>';
 
   // Radar
   if (radarI) radarI.destroy();
@@ -1336,12 +1393,12 @@ async function checkSettingsAPI() {
   try {
     const r = await fetch(url + '/health', { signal: AbortSignal.timeout(3000) });
     if (r.ok) {
-      el.innerHTML = '<span style="color:var(--green);font-weight:500">✓ Connected</span> — API is online';
+      el.innerHTML = '<span style="color:var(--green);font-weight:500">' + ICONS.check + ' Connected</span> — API is online';
     } else {
-      el.innerHTML = '<span style="color:var(--red);font-weight:500">✕ Error</span> — API returned ' + r.status;
+      el.innerHTML = '<span style="color:var(--red);font-weight:500">' + ICONS.xIcon + ' Error</span> — API returned ' + r.status;
     }
   } catch {
-    el.innerHTML = '<span style="color:var(--red);font-weight:500">✕ Offline</span> — Cannot reach ' + url;
+    el.innerHTML = '<span style="color:var(--red);font-weight:500">' + ICONS.xIcon + ' Offline</span> — Cannot reach ' + url;
   }
 }
 
@@ -1361,23 +1418,24 @@ async function loadProfiles() {
     const profiles = await r.json();
     container.innerHTML = Object.entries(profiles).map(([key, p]) => {
       const isSelected = key === currentProfile;
+      const profileIcon = key === 'technical' ? ICONS.gear : key === 'manager' ? ICONS.users : ICONS.star;
       return `<div class="profile-card ${isSelected ? 'selected' : ''}" onclick="selectProfile('${key}', event)">
-        <div class="profile-card-title">${key === 'technical' ? '💻' : key === 'manager' ? '👔' : '🎓'} ${key.charAt(0).toUpperCase() + key.slice(1)} Role</div>
+        <div class="profile-card-title">${profileIcon} ${key.charAt(0).toUpperCase() + key.slice(1)} Role</div>
         <div class="profile-card-desc">${p.description || 'Skills: ' + (p.skills_weight*100) + '% | Semantic: ' + (p.semantic_weight*100) + '% | Experience: ' + (p.experience_weight*100) + '%'}</div>
       </div>`;
     }).join('');
   } catch {
     container.innerHTML = `
        <div class="profile-card selected" onclick="selectProfile('technical', event)">
-        <div class="profile-card-title">💻 Technical Role</div>
+        <div class="profile-card-title">${ICONS.gear} Technical Role</div>
         <div class="profile-card-desc">Skills 60% | Semantic 30% | Experience 10%</div>
       </div>
        <div class="profile-card" onclick="selectProfile('manager', event)">
-        <div class="profile-card-title">👔 Manager Role</div>
+        <div class="profile-card-title">${ICONS.users} Manager Role</div>
         <div class="profile-card-desc">Skills 30% | Semantic 50% | Experience 20%</div>
       </div>
        <div class="profile-card" onclick="selectProfile('entry', event)">
-        <div class="profile-card-title">🎓 Entry Level</div>
+        <div class="profile-card-title">${ICONS.star} Entry Level</div>
         <div class="profile-card-desc">Skills 70% | Semantic 20% | Experience 10%</div>
       </div>`;
   }

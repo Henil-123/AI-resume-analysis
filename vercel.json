@@ -1,5 +1,4 @@
 {
-  "version": 2,
   "rewrites": [
     { "source": "/health", "destination": "/api/index" },
     { "source": "/analyze", "destination": "/api/index" },
@@ -11,7 +10,8 @@
     { "source": "/profiles", "destination": "/api/index" },
     { "source": "/export/:path*", "destination": "/api/index" },
     { "source": "/clear", "destination": "/api/index" },
-    { "source": "/auth/:path*", "destination": "/api/index" }
+    { "source": "/auth/:path*", "destination": "/api/index" },
+    { "source": "/", "destination": "/frontend/index.html" }
   ],
   "headers": [
     {

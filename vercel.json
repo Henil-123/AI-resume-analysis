@@ -1,24 +1,17 @@
 {
   "version": 2,
-  "builds": [
-    {
-      "src": "api/index.py",
-      "use": "@vercel/python"
-    },
-    {
-      "src": "frontend/**",
-      "use": "@vercel/static"
-    }
-  ],
-  "routes": [
-    {
-      "src": "/api/(.*)",
-      "dest": "api/index.py"
-    },
-    {
-      "src": "/(.*)",
-      "dest": "frontend/$1"
-    }
+  "rewrites": [
+    { "source": "/health", "destination": "/api/index" },
+    { "source": "/analyze", "destination": "/api/index" },
+    { "source": "/analyze/bulk", "destination": "/api/index" },
+    { "source": "/candidates", "destination": "/api/index" },
+    { "source": "/candidates/:path*", "destination": "/api/index" },
+    { "source": "/compare", "destination": "/api/index" },
+    { "source": "/stats", "destination": "/api/index" },
+    { "source": "/profiles", "destination": "/api/index" },
+    { "source": "/export/:path*", "destination": "/api/index" },
+    { "source": "/clear", "destination": "/api/index" },
+    { "source": "/auth/:path*", "destination": "/api/index" }
   ],
   "headers": [
     {

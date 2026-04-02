@@ -36,16 +36,20 @@ app = Flask(__name__)
 
 # CORS — allow frontend origins (Vercel + local dev)
 CORS(app, origins=[
-    r"https://ai-resume-analyzer\.vercel\.app",
     r"https://.*\.vercel\.app",
     r"http://localhost:.*",
     r"http://127\.0\.0\.1:.*",
+    "*",
 ])
 
 # 10MB max upload size
 app.config['MAX_CONTENT_LENGTH'] = 10 * 1024 * 1024
 
-UPLOAD_FOLDER = os.path.join(os.path.dirname(__file__), "..", "data", "resumes")
+# Use /tmp for file uploads in serverless environment
+if os.environ.get('VERCEL'):
+    UPLOAD_FOLDER = os.path.join('/tmp', 'resumes')
+else:
+    UPLOAD_FOLDER = os.path.join(os.path.dirname(__file__), "..", "data", "resumes")
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 ALLOWED_EXTENSIONS = {"pdf", "docx", "txt"}

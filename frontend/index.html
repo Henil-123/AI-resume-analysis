@@ -641,7 +641,7 @@ input[type=file]{display:none;}
             <div class="sc-sub">Configure connection to the backend server</div>
             <div class="sc-row">
               <div class="sc-label">API Base URL</div>
-              <input class="sc-input" id="set-api-url" value="http://localhost:5000" />
+              <input class="sc-input" id="set-api-url" value="" />
             </div>
             <div class="sc-row">
               <div class="sc-label">Connection Status</div>
@@ -709,7 +709,7 @@ input[type=file]{display:none;}
             <div class="sc-row" style="margin-top:14px">
               <div class="sc-label">App Info</div>
               <div style="font-size:12px;color:var(--text3);line-height:1.7">
-                AI Resume Analyzer v2.0<br>
+                AI Resume Analyzer v2.0 (Vercel Edition)<br>
                 Backend: Flask + spaCy + Sentence-BERT<br>
                 Skills Database: 500+ skills, 16 categories
               </div>
@@ -726,7 +726,7 @@ input[type=file]{display:none;}
 <div id="print-report"></div>
 
 <script>
-let API = 'http://localhost:5000';
+let API = '';
 let allCands = [], filteredCands = [], selectedIds = new Set();
 let curPage = 1; const perPage = 15;
 let radarI = null, pieI = null, distI = null, eduI = null;

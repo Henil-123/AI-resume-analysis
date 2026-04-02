@@ -22,7 +22,11 @@ logger = logging.getLogger(__name__)
 # ── Configuration ────────────────────────────────────────────────
 MONGO_URI = os.getenv("MONGO_URI", "")
 DB_NAME = os.getenv("DB_NAME", "resume_analyzer")
-LOCAL_DB_PATH = os.path.join(os.path.dirname(__file__), "..", "..", "data", "candidates.json")
+
+if os.environ.get('VERCEL'):
+    LOCAL_DB_PATH = os.path.join('/tmp', 'candidates.json')
+else:
+    LOCAL_DB_PATH = os.path.join(os.path.dirname(__file__), "..", "..", "data", "candidates.json")
 
 _collection = None
 _use_mongo = False

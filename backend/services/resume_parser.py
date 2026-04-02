@@ -3,10 +3,12 @@ Resume Parser — Extracts structured data from PDF, DOCX, and TXT resumes.
 
 Features:
 - Multi-format text extraction (PDF via PyPDF2/pdfminer, DOCX, TXT)
-- spaCy NER-based name extraction with heuristic fallback
+- Regex-based name extraction with heuristic fallback (no spaCy needed)
 - Email, phone, LinkedIn extraction
 - Confidence scoring (high/medium/low) based on data quality
 - Graceful handling of empty/corrupted files
+
+Note: Replaced spaCy NER with regex heuristics for Vercel serverless compatibility.
 """
 
 import re
@@ -14,43 +16,6 @@ import os
 import logging
 
 logger = logging.getLogger(__name__)
-
-# ── spaCy model (loaded once) ────────────────────────────────────
-_nlp = None
-
-def _get_nlp():
-    global _nlp
-    if _nlp is not None:
-        return _nlp
-
-    try:
-        import spacy
-        _nlp = spacy.load("en_core_web_sm")
-        return _nlp
-
-    except OSError as e:
-        logger.warning(
-            "spaCy model 'en_core_web_sm' not found; attempting to download."
-        )
-        try:
-            from spacy.cli import download
-            download("en_core_web_sm")
-            _nlp = spacy.load("en_core_web_sm")
-            return _nlp
-        except Exception as e2:
-            logger.error(
-                "Unable to load spaCy model en_core_web_sm even after download. Using blank 'en' model.",
-                exc_info=True,
-            )
-            import spacy
-            _nlp = spacy.blank("en")
-            return _nlp
-
-    except Exception as e:
-        logger.error("spaCy initialization failure", exc_info=True)
-        import spacy
-        _nlp = spacy.blank("en")
-        return _nlp
 
 
 # ── Text Extraction ──────────────────────────────────────────────
@@ -134,7 +99,6 @@ def extract_phone(text):
     for pattern in patterns:
         matches = re.findall(pattern, text)
         if matches:
-            # Return the longest match (most complete number)
             return max(matches, key=len).strip()
     return None
 
@@ -155,31 +119,8 @@ def extract_linkedin(text):
     return None
 
 
-def extract_name_ner(text):
-    """
-    Extract candidate name using spaCy Named Entity Recognition.
-    Looks for PERSON entities in the first few lines of the resume.
-    """
-    try:
-        nlp = _get_nlp()
-        # Only process first 500 chars (name is usually at the top)
-        header_text = text[:500]
-        doc = nlp(header_text)
-        for ent in doc.ents:
-            if ent.label_ == "PERSON":
-                name = ent.text.strip()
-                # Validate: should be 2-5 words, no numbers
-                words = name.split()
-                if 1 < len(words) <= 5 and not any(c.isdigit() for c in name):
-                    return name.title()
-        return None
-    except Exception as e:
-        logger.warning(f"NER name extraction failed: {e}")
-        return None
-
-
 def extract_name_heuristic(text):
-    """Fallback: Try to extract candidate name from first lines of resume."""
+    """Extract candidate name from first lines of resume using heuristics."""
     lines = text.strip().split('\n')
     for line in lines[:5]:
         line = line.strip()
@@ -195,10 +136,7 @@ def extract_name_heuristic(text):
 
 
 def extract_name(text):
-    """Extract name: NER first, heuristic fallback."""
-    ner_name = extract_name_ner(text)
-    if ner_name:
-        return ner_name
+    """Extract name using heuristic approach."""
     return extract_name_heuristic(text)
 
 

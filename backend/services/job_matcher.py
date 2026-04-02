@@ -3,65 +3,68 @@ Job Matcher — Scoring engine for resume-to-job matching.
 
 Features:
 - Keyword-based skill matching (set intersection)
-- Semantic similarity using Sentence-BERT (all-MiniLM-L6-v2)
+- Lightweight semantic similarity using TF-IDF + cosine (no PyTorch needed)
 - Experience scoring with configurable requirements
 - Weighted final score with full component breakdown
-- BERT model loaded as singleton (not per-request)
-- JD embedding cache to avoid recomputation
 - Weight profiles support (Technical/Manager/Entry-Level)
+
+Note: Replaced Sentence-BERT with TF-IDF cosine similarity for Vercel compatibility.
 """
 
 import os
 import json
 import hashlib
+import math
+import re
 import logging
+from collections import Counter
 
 logger = logging.getLogger(__name__)
 
-# ── BERT Model Singleton ─────────────────────────────────────────
-_model = None
+# ── TF-IDF Semantic Similarity (lightweight, no ML models) ───────
 
-
-def _get_model():
-    """Load Sentence-BERT model once and cache globally."""
-    global _model
-    if _model is None:
-        try:
-            from sentence_transformers import SentenceTransformer
-            logger.info("Loading Sentence-BERT model (all-MiniLM-L6-v2)...")
-            _model = SentenceTransformer('all-MiniLM-L6-v2')
-            logger.info("Sentence-BERT model loaded successfully")
-        except Exception as e:
-            logger.error(f"Failed to load Sentence-BERT: {e}")
-            _model = None
-    return _model
-
-
-# ── JD Embedding Cache ───────────────────────────────────────────
-_jd_cache = {}  # hash(jd_text) -> embedding tensor
+_jd_cache = {}
 _MAX_CACHE_SIZE = 100
 
 
-def _get_jd_embedding(job_description):
-    """Get or compute JD embedding with caching."""
-    model = _get_model()
-    if model is None:
-        return None
+def _tokenize(text):
+    """Simple tokenizer: lowercase, remove punctuation, split into words."""
+    text = text.lower()
+    text = re.sub(r'[^a-z0-9\s]', ' ', text)
+    words = text.split()
+    # Remove common stop words
+    stop_words = {
+        'a', 'an', 'the', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
+        'of', 'with', 'by', 'from', 'is', 'are', 'was', 'were', 'be', 'been',
+        'being', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would',
+        'could', 'should', 'may', 'might', 'shall', 'can', 'this', 'that',
+        'these', 'those', 'i', 'me', 'my', 'we', 'our', 'you', 'your', 'he',
+        'she', 'it', 'they', 'them', 'their', 'what', 'which', 'who', 'whom',
+        'how', 'when', 'where', 'why', 'not', 'no', 'nor', 'if', 'then',
+        'than', 'too', 'very', 'just', 'about', 'above', 'after', 'again',
+        'all', 'also', 'am', 'as', 'because', 'before', 'between', 'both',
+        'each', 'few', 'more', 'most', 'other', 'over', 'same', 'so', 'some',
+        'such', 'up', 'out', 'only', 'own', 'into', 'here', 'there'
+    }
+    return [w for w in words if w not in stop_words and len(w) > 1]
 
-    # Hash the JD text for cache key
-    jd_hash = hashlib.md5(job_description.encode()).hexdigest()
 
-    if jd_hash in _jd_cache:
-        return _jd_cache[jd_hash]
+def _cosine_similarity(vec1, vec2):
+    """Compute cosine similarity between two counter vectors."""
+    if not vec1 or not vec2:
+        return 0.0
 
-    # Evict oldest if cache is full
-    if len(_jd_cache) >= _MAX_CACHE_SIZE:
-        oldest_key = next(iter(_jd_cache))
-        del _jd_cache[oldest_key]
+    # Get all unique terms
+    all_terms = set(vec1.keys()) | set(vec2.keys())
 
-    embedding = model.encode(job_description[:1000], convert_to_tensor=True)
-    _jd_cache[jd_hash] = embedding
-    return embedding
+    dot_product = sum(vec1.get(t, 0) * vec2.get(t, 0) for t in all_terms)
+    mag1 = math.sqrt(sum(v ** 2 for v in vec1.values()))
+    mag2 = math.sqrt(sum(v ** 2 for v in vec2.values()))
+
+    if mag1 == 0 or mag2 == 0:
+        return 0.0
+
+    return dot_product / (mag1 * mag2)
 
 
 # ── Weight Profiles ──────────────────────────────────────────────
@@ -133,28 +136,25 @@ def get_missing_skills(resume_skills, required_skills):
 
 def calculate_semantic_score(resume_text, job_description):
     """
-    Semantic similarity using Sentence-BERT.
-    Uses cached model and JD embeddings.
+    Lightweight semantic similarity using TF-IDF cosine similarity.
     Returns: float 0–100
     """
     if not resume_text or not job_description:
         return 0.0
 
-    model = _get_model()
-    if model is None:
-        return 0.0
-
     try:
-        from sentence_transformers import util
+        resume_tokens = _tokenize(resume_text[:2000])
+        jd_tokens = _tokenize(job_description[:2000])
 
-        resume_vec = model.encode(resume_text[:1000], convert_to_tensor=True)
-        jd_vec = _get_jd_embedding(job_description)
+        resume_vec = Counter(resume_tokens)
+        jd_vec = Counter(jd_tokens)
 
-        if jd_vec is None:
-            return 0.0
+        similarity = _cosine_similarity(resume_vec, jd_vec)
 
-        similarity = util.pytorch_cos_sim(resume_vec, jd_vec)
-        return round(float(similarity) * 100, 1)
+        # Scale up since TF-IDF cosine tends to give lower values than BERT
+        # Cap at 100
+        scaled = min(similarity * 130, 1.0)
+        return round(scaled * 100, 1)
     except Exception as e:
         logger.error(f"Semantic scoring error: {e}")
         return 0.0

@@ -1,12 +1,14 @@
 """
-Skill Extractor — NLP-powered skill detection from resume text.
+Skill Extractor — Lightweight skill detection from resume text.
 
 Features:
-- spaCy PhraseMatcher with 500+ skill patterns
+- Regex-based PhraseMatcher (no spaCy dependency)
 - Alias normalization (ML → Machine Learning, JS → JavaScript, etc.)
 - Categorized skill extraction (16 categories)
 - Experience year extraction (explicit mentions + date range calculation)
 - Education level detection
+
+Note: Replaced spaCy with pure regex for Vercel serverless compatibility.
 """
 
 import json
@@ -14,13 +16,7 @@ import os
 import re
 import logging
 
-import spacy
-from spacy.matcher import PhraseMatcher
-
 logger = logging.getLogger(__name__)
-
-# ── Load spaCy model ──────────────────────────────────────────────
-nlp = spacy.load("en_core_web_sm")
 
 # ── Load skills dataset ───────────────────────────────────────────
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -47,10 +43,12 @@ for category, skills in skills_data.items():
         all_skills.append(skill_lower)
         skill_category_map[skill_lower] = category
 
-# Build PhraseMatcher
-matcher = PhraseMatcher(nlp.vocab, attr="LOWER")
-patterns = [nlp.make_doc(skill) for skill in all_skills]
-matcher.add("SKILLS", patterns)
+# Pre-compile regex patterns for each skill (sorted longest-first to match greedily)
+_skill_patterns = []
+for skill in sorted(all_skills, key=len, reverse=True):
+    escaped = re.escape(skill)
+    pattern = re.compile(r'\b' + escaped + r'\b', re.IGNORECASE)
+    _skill_patterns.append((skill, pattern))
 
 logger.info(f"Loaded {len(all_skills)} skills across {len(skills_data)} categories")
 
@@ -74,7 +72,7 @@ def _normalize_text_with_aliases(text):
 
 def extract_skills(text):
     """
-    Extract skills from resume text.
+    Extract skills from resume text using regex matching.
     Normalizes aliases before matching.
     Returns: sorted list of unique found skill strings.
     """
@@ -84,13 +82,13 @@ def extract_skills(text):
     # Normalize abbreviations
     normalized_text = _normalize_text_with_aliases(text)
 
-    doc = nlp(normalized_text[:100000])  # spaCy limit safety
-    matches = matcher(doc)
+    # Limit text length for performance
+    search_text = normalized_text[:100000]
 
     found = set()
-    for _, start, end in matches:
-        skill = doc[start:end].text.lower()
-        found.add(skill)
+    for skill, pattern in _skill_patterns:
+        if pattern.search(search_text):
+            found.add(skill)
 
     return sorted(list(found))
 
@@ -159,7 +157,7 @@ def extract_experience_years(text):
                 max_years = max(max_years, val)
 
     # Method 2: Year ranges (e.g., "2019 - 2024", "2019-present")
-    current_year = 2026  # Hardcoded to avoid datetime dependency issues
+    current_year = 2026
     year_range_patterns = [
         r'(20[0-2]\d)\s*[-–—to]+\s*(20[0-2]\d)',
         r'(20[0-2]\d)\s*[-–—to]+\s*(?:present|current|now|ongoing)',

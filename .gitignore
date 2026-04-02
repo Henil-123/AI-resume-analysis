@@ -1,0 +1,39 @@
+# Python
+venv/
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Environment
+.env
+*.env.local
+
+# Data (don't commit real resumes)
+data/resumes/*.pdf
+data/resumes/*.docx
+data/candidates.json
+data/users.json
+
+# Models (too large for git)
+models/*.pkl
+backend/nlp_models/*.pkl
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# Node (if you use React build later)
+node_modules/
+frontend/build/

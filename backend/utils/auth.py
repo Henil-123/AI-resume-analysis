@@ -5,7 +5,7 @@ Features:
 - Signup and login with hashed passwords
 - JWT token generation and verification
 - @require_auth decorator for protected endpoints
-- Local JSON storage for users (MongoDB optional)
+- Local JSON storage for users (Supabase optional)
 """
 
 import os
@@ -24,7 +24,29 @@ logger = logging.getLogger(__name__)
 # ── Configuration ────────────────────────────────────────────────
 SECRET_KEY = os.getenv("JWT_SECRET", "resume-analyzer-dev-secret-change-in-production")
 TOKEN_EXPIRY = 86400  # 24 hours
-USERS_DB_PATH = os.path.join(os.path.dirname(__file__), "..", "..", "data", "users.json")
+if os.environ.get('VERCEL'):
+    USERS_DB_PATH = os.path.join('/tmp', 'users.json')
+else:
+    USERS_DB_PATH = os.path.join(os.path.dirname(__file__), "..", "..", "data", "users.json")
+
+SUPABASE_URL = os.getenv("SUPABASE_URL", "")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY", "")
+
+_supabase = None
+
+def _get_supabase():
+    global _supabase
+    if _supabase:
+        return _supabase
+    if SUPABASE_URL and SUPABASE_KEY:
+        try:
+            from supabase import create_client
+            _supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+            return _supabase
+        except Exception as e:
+            logger.warning(f"Supabase auth failed: {e}")
+            _supabase = None
+    return None
 
 
 # ── Simple password hashing (no bcrypt dependency) ───────────────
@@ -123,13 +145,9 @@ def _save_users(users):
 
 def create_user(email, password, name=""):
     """Create a new user. Returns (user_dict, error_string)."""
-    users = _load_users()
-
-    # Check if email already exists
-    if any(u["email"] == email for u in users):
-        return None, "Email already registered"
-
-    user = {
+    sb = _get_supabase()
+    
+    user_record = {
         "id": str(uuid.uuid4())[:8],
         "email": email,
         "name": name,
@@ -137,25 +155,62 @@ def create_user(email, password, name=""):
         "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     }
 
-    users.append(user)
-    _save_users(users)
+    if sb is not None:
+        try:
+            # Check if email exists
+            res = sb.table('users').select('id').eq('email', email).execute()
+            if res.data:
+                return None, "Email already registered"
 
-    # Return user without password hash
-    return {k: v for k, v in user.items() if k != "password_hash"}, None
+            # Insert user
+            sb.table('users').insert(user_record).execute()
+            return {k: v for k, v in user_record.items() if k != "password_hash"}, None
+
+        except Exception as e:
+            logger.error(f"Error creating user in Supabase: {e}")
+            return None, "Database error"
+    else:
+        users = _load_users()
+
+        # Check if email already exists
+        if any(u["email"] == email for u in users):
+            return None, "Email already registered"
+
+        users.append(user_record)
+        _save_users(users)
+
+        return {k: v for k, v in user_record.items() if k != "password_hash"}, None
 
 
 def authenticate_user(email, password):
     """Authenticate a user. Returns (user_dict, error_string)."""
-    users = _load_users()
+    sb = _get_supabase()
 
-    for user in users:
-        if user["email"] == email:
+    if sb is not None:
+        try:
+            res = sb.table('users').select('*').eq('email', email).limit(1).execute()
+            if not res.data:
+                return None, "User not found"
+            
+            user = res.data[0]
             if verify_password(password, user["password_hash"]):
                 return {k: v for k, v in user.items() if k != "password_hash"}, None
             else:
                 return None, "Invalid password"
+        except Exception as e:
+            logger.error(f"Error authenticating user in Supabase: {e}")
+            return None, "Database error"
+    else:
+        users = _load_users()
 
-    return None, "User not found"
+        for user in users:
+            if user["email"] == email:
+                if verify_password(password, user["password_hash"]):
+                    return {k: v for k, v in user.items() if k != "password_hash"}, None
+                else:
+                    return None, "Invalid password"
+
+        return None, "User not found"
 
 
 # ── Flask decorator ──────────────────────────────────────────────

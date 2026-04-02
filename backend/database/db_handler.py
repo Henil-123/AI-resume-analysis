@@ -1,8 +1,8 @@
 """
-Database Handler — MongoDB with local JSON fallback.
+Database Handler — Supabase (PostgreSQL) with local JSON fallback.
 
 Features:
-- MongoDB Atlas support + automatic JSON fallback
+- Supabase REST client support + automatic JSON fallback
 - Candidate CRUD operations
 - Status management (shortlisted / rejected / maybe / pending)
 - Filtering by score, experience, skills, status
@@ -20,35 +20,33 @@ from datetime import datetime
 logger = logging.getLogger(__name__)
 
 # ── Configuration ────────────────────────────────────────────────
-MONGO_URI = os.getenv("MONGO_URI", "")
-DB_NAME = os.getenv("DB_NAME", "resume_analyzer")
+SUPABASE_URL = os.getenv("SUPABASE_URL", "")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY", "")
 
 if os.environ.get('VERCEL'):
     LOCAL_DB_PATH = os.path.join('/tmp', 'candidates.json')
 else:
     LOCAL_DB_PATH = os.path.join(os.path.dirname(__file__), "..", "..", "data", "candidates.json")
 
-_collection = None
-_use_mongo = False
+_supabase = None
+_use_supabase = False
 
 VALID_STATUSES = {"pending", "shortlisted", "rejected", "maybe"}
 
 
-def _get_collection():
-    global _collection, _use_mongo
-    if _collection:
-        return _collection
-    if MONGO_URI:
+def _get_supabase():
+    global _supabase, _use_supabase
+    if _supabase:
+        return _supabase
+    if SUPABASE_URL and SUPABASE_KEY:
         try:
-            from pymongo import MongoClient
-            client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=3000)
-            client.server_info()
-            _collection = client[DB_NAME]["candidates"]
-            _use_mongo = True
-            logger.info("Connected to MongoDB")
-            return _collection
+            from supabase import create_client, Client
+            _supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+            _use_supabase = True
+            logger.info("Connected to Supabase")
+            return _supabase
         except Exception as e:
-            logger.warning(f"MongoDB unavailable ({e}), using local JSON storage")
+            logger.warning(f"Supabase unavailable ({e}), using local JSON storage")
     return None
 
 
@@ -107,9 +105,17 @@ def save_candidate(data: dict) -> tuple:
     record.pop("raw_text", None)
     record.pop("clean_text", None)
 
-    col = _get_collection()
-    if col is not None:
-        col.insert_one(record)
+    sb = _get_supabase()
+    if sb is not None:
+        try:
+            # Upsert handles inserting without failing if there are constraints, but here basic insert is fine
+            sb.table('candidates').insert(record).execute()
+        except Exception as e:
+            logger.error(f"Failed to insert candidate to Supabase: {e}")
+            # Fallback to local
+            records = _load_local()
+            records.append(record)
+            _save_local(records)
     else:
         records = _load_local()
         records.append(record)
@@ -120,9 +126,14 @@ def save_candidate(data: dict) -> tuple:
 
 def find_by_hash(text_hash):
     """Find an existing candidate by text hash (for duplicate detection)."""
-    col = _get_collection()
-    if col is not None:
-        return col.find_one({"text_hash": text_hash}, {"_id": 0})
+    sb = _get_supabase()
+    if sb is not None:
+        try:
+            res = sb.table('candidates').select('*').eq('text_hash', text_hash).limit(1).execute()
+            if res.data:
+                return res.data[0]
+        except Exception as e:
+            logger.error(f"Error querying by hash: {e}")
     else:
         for r in _load_local():
             if r.get("text_hash") == text_hash:
@@ -141,10 +152,37 @@ def get_all_candidates(filters=None):
     - skills: comma-separated list of required skills (must have all)
     - status: candidate status (pending/shortlisted/rejected/maybe)
     """
-    col = _get_collection()
-    if col is not None:
-        query = _build_mongo_query(filters)
-        results = list(col.find(query, {"_id": 0}).sort("final_score", -1))
+    sb = _get_supabase()
+    if sb is not None:
+        try:
+            query = sb.table('candidates').select('*')
+            
+            if filters:
+                if "min_score" in filters:
+                    query = query.gte("final_score", float(filters["min_score"]))
+                if "max_score" in filters:
+                    query = query.lte("final_score", float(filters["max_score"]))
+                if "min_experience" in filters:
+                    query = query.gte("experience_years", int(filters["min_experience"]))
+                if "status" in filters:
+                    query = query.eq("status", filters["status"])
+                # Supabase array contained by / overlapping requires special operators. 
+                # For simplicity, we fetch them and filter matched_skills in python if needed, 
+                # or use Postgres array operators if perfectly aligned. 
+                # Let's filter skills in Python to be safe and compatible with local fallback.
+            
+            res = query.order("final_score", desc=True).execute()
+            results = res.data
+            
+            # Post-filter for skills since arrays with JSON REST API can be tricky
+            if filters and "skills" in filters:
+                skill_list = [s.strip().lower() for s in filters["skills"].split(",")]
+                results = [r for r in results 
+                           if all(s in r.get("matched_skills", []) for s in skill_list)]
+                
+        except Exception as e:
+            logger.error(f"Error fetching candidates: {e}")
+            results = []
     else:
         results = _load_local()
         results = _apply_local_filters(results, filters)
@@ -156,26 +194,6 @@ def get_all_candidates(filters=None):
         r["is_top"] = i < 3
 
     return results
-
-
-def _build_mongo_query(filters):
-    """Build MongoDB query from filter dict."""
-    if not filters:
-        return {}
-
-    query = {}
-    if "min_score" in filters:
-        query.setdefault("final_score", {})["$gte"] = float(filters["min_score"])
-    if "max_score" in filters:
-        query.setdefault("final_score", {})["$lte"] = float(filters["max_score"])
-    if "min_experience" in filters:
-        query["experience_years"] = {"$gte": int(filters["min_experience"])}
-    if "status" in filters:
-        query["status"] = filters["status"]
-    if "skills" in filters:
-        skill_list = [s.strip().lower() for s in filters["skills"].split(",")]
-        query["matched_skills"] = {"$all": skill_list}
-    return query
 
 
 def _apply_local_filters(records, filters):
@@ -211,9 +229,14 @@ def _apply_local_filters(records, filters):
 
 def get_candidate_by_id(candidate_id: str):
     """Return a single candidate by ID."""
-    col = _get_collection()
-    if col is not None:
-        return col.find_one({"id": candidate_id}, {"_id": 0})
+    sb = _get_supabase()
+    if sb is not None:
+        try:
+            res = sb.table('candidates').select('*').eq('id', candidate_id).single().execute()
+            return res.data
+        except Exception as e:
+            logger.error(f"Error fetching candidate {candidate_id}: {e}")
+            return None
     else:
         for r in _load_local():
             if r.get("id") == candidate_id:
@@ -229,10 +252,14 @@ def update_candidate_status(candidate_id: str, status: str) -> bool:
     if status not in VALID_STATUSES:
         return False
 
-    col = _get_collection()
-    if col is not None:
-        result = col.update_one({"id": candidate_id}, {"$set": {"status": status}})
-        return result.modified_count > 0
+    sb = _get_supabase()
+    if sb is not None:
+        try:
+            res = sb.table('candidates').update({"status": status}).eq('id', candidate_id).execute()
+            return len(res.data) > 0
+        except Exception as e:
+            logger.error(f"Error updating status: {e}")
+            return False
     else:
         records = _load_local()
         for r in records:
@@ -245,10 +272,14 @@ def update_candidate_status(candidate_id: str, status: str) -> bool:
 
 def delete_candidate(candidate_id: str) -> bool:
     """Delete a candidate by ID."""
-    col = _get_collection()
-    if col is not None:
-        result = col.delete_one({"id": candidate_id})
-        return result.deleted_count > 0
+    sb = _get_supabase()
+    if sb is not None:
+        try:
+            res = sb.table('candidates').delete().eq('id', candidate_id).execute()
+            return len(res.data) > 0
+        except Exception as e:
+            logger.error(f"Error deleting: {e}")
+            return False
     else:
         records = _load_local()
         new_records = [r for r in records if r.get("id") != candidate_id]
@@ -260,9 +291,14 @@ def delete_candidate(candidate_id: str) -> bool:
 
 def clear_all_candidates():
     """Delete all candidates (for testing)."""
-    col = _get_collection()
-    if col is not None:
-        col.delete_many({})
+    sb = _get_supabase()
+    if sb is not None:
+        try:
+            # We can only delete rows in REST if we have a filter,
+            # so we match id is not null safely.
+            sb.table('candidates').delete().not_('id', 'is', 'null').execute()
+        except Exception as e:
+            logger.error(f"Error clearing: {e}")
     else:
         _save_local([])
 

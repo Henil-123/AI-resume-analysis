@@ -40,13 +40,7 @@ is_dev = os.getenv("APP_ENV") != "production" and os.getenv("FLASK_ENV") != "pro
 if is_dev:
     CORS(app, supports_credentials=True) # Allow all in dev
 else:
-    CORS(app, origins=[
-        r"https://ai-resume-analysis-uiss\.vercel\.app",
-        r"https://ai-resume-analyzer\.vercel\.app",
-        r"https://.*\.vercel\.app",
-        r"http://localhost:.*",
-        r"http://127\.0\.0\.1:.*",
-    ])
+    CORS(app, origins="*")
 
 # 10MB max upload size
 app.config['MAX_CONTENT_LENGTH'] = 10 * 1024 * 1024

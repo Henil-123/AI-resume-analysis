@@ -726,10 +726,9 @@ input[type=file]{display:none;}
 <div id="print-report"></div>
 
 <script>
-// Auto-detect: use /api proxy on Vercel, localhost for local dev
 let API = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || window.location.hostname === '')
   ? 'http://localhost:5000'
-  : '/api';
+  : 'https://ai-resume-analyzer-dx0p.onrender.com';
 let allCands = [], filteredCands = [], selectedIds = new Set();
 let curPage = 1; const perPage = 15;
 let radarI = null, pieI = null, distI = null, eduI = null;

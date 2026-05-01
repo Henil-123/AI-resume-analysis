@@ -1450,9 +1450,11 @@ function editRequirements() {
 // ── Apply defaults on load of analyze tab ─────────────────
 
 // ── Init ──────────────────────────────────────────────────
-// Load saved API URL if exists (only override if user has manually set one)
+// Load saved API URL ONLY when running on a remote host (e.g. Vercel).
+// On localhost, always use the local backend so dev testing is reliable.
+const isLocal = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || window.location.hostname === '');
 const savedApiUrl = localStorage.getItem('ats_api_url');
-if (savedApiUrl) API = savedApiUrl;
+if (savedApiUrl && !isLocal) API = savedApiUrl;
 
 // Set the settings input to show current API URL
 document.getElementById('set-api-url').value = API;

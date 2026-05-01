@@ -26,6 +26,9 @@ def _get_model():
     """Load Sentence-BERT model once and cache globally."""
     global _model
     if _model is None:
+        if os.getenv("DISABLE_SEMANTIC_SCORING", "false").lower() == "true":
+            logger.warning("Semantic scoring disabled via environment variable. Skipping Sentence-BERT.")
+            return None
         try:
             from sentence_transformers import SentenceTransformer
             logger.info("Loading Sentence-BERT model (all-MiniLM-L6-v2)...")

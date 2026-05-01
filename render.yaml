@@ -14,7 +14,7 @@ services:
         value: resume_analyzer
       - key: JWT_SECRET
         generateValue: true
-      - key: DISABLE_SEMANTIC_SCORING
-        value: "true"
+      - key: GROQ_API_KEY
+        sync: false
     healthCheckPath: /health
     plan: free

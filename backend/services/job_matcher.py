@@ -3,14 +3,14 @@ Job Matcher — Scoring engine for resume-to-job matching.
 
 Features:
 - Keyword-based skill matching (set intersection)
-- Semantic similarity using Sentence-BERT (all-MiniLM-L6-v2)
+- Semantic similarity using Groq AI (Llama 3)
 - Experience scoring with configurable requirements
 - Weighted final score with full component breakdown
-- BERT model loaded as singleton (not per-request)
-- JD embedding cache to avoid recomputation
+- Groq client initialized as singleton
 - Weight profiles support (Technical/Manager/Entry-Level)
 """
 
+import re
 import os
 import json
 import hashlib
@@ -18,56 +18,76 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-# ── BERT Model Singleton ─────────────────────────────────────────
-_model = None
+# ── Groq AI Client ───────────────────────────────────────────────
+_groq_client = None
 
-
-def _get_model():
-    """Load Sentence-BERT model once and cache globally."""
-    global _model
-    if _model is None:
-        if os.getenv("DISABLE_SEMANTIC_SCORING", "false").lower() == "true":
-            logger.warning("Semantic scoring disabled via environment variable. Skipping Sentence-BERT.")
+def _get_groq_client():
+    """Initialize Groq client once."""
+    global _groq_client
+    if _groq_client is None:
+        api_key = os.getenv("GROQ_API_KEY")
+        if not api_key:
+            logger.warning("GROQ_API_KEY not found in environment. Semantic scoring will be disabled.")
             return None
         try:
-            from sentence_transformers import SentenceTransformer
-            logger.info("Loading Sentence-BERT model (all-MiniLM-L6-v2)...")
-            _model = SentenceTransformer('all-MiniLM-L6-v2')
-            logger.info("Sentence-BERT model loaded successfully")
+            from groq import Groq
+            _groq_client = Groq(api_key=api_key)
         except Exception as e:
-            logger.error(f"Failed to load Sentence-BERT: {e}")
-            _model = None
-    return _model
+            logger.error(f"Failed to initialize Groq client: {e}")
+            _groq_client = None
+    return _groq_client
 
 
-# ── JD Embedding Cache ───────────────────────────────────────────
-_jd_cache = {}  # hash(jd_text) -> embedding tensor
-_MAX_CACHE_SIZE = 100
+# ── Semantic Scoring (Groq Implementation) ───────────────────────
 
+def calculate_semantic_score(resume_text, job_description):
+    """
+    Semantic similarity using Groq AI (Llama 3).
+    Returns: float 0–100
+    """
+    if not resume_text or not job_description:
+        return 0.0
 
-def _get_jd_embedding(job_description):
-    """Get or compute JD embedding with caching."""
-    model = _get_model()
-    if model is None:
-        return None
+    if os.getenv("DISABLE_SEMANTIC_SCORING", "false").lower() == "true":
+        return 0.0
 
-    # Hash the JD text for cache key
-    jd_hash = hashlib.md5(job_description.encode()).hexdigest()
+    client = _get_groq_client()
+    if client is None:
+        return 0.0
 
-    if jd_hash in _jd_cache:
-        return _jd_cache[jd_hash]
+    try:
+        # We only need the first part of the resume for semantic context
+        prompt = f"""
+        You are an expert HR recruiter. Rate the semantic similarity between the candidate's resume and the job description.
+        Consider skills, experience, and role alignment.
+        
+        RESUME:
+        {resume_text[:2000]}
+        
+        JOB DESCRIPTION:
+        {job_description[:1000]}
+        
+        Return ONLY a number between 0 and 100 representing the match percentage. No text, no explanation.
+        """
 
-    # Evict oldest if cache is full
-    if len(_jd_cache) >= _MAX_CACHE_SIZE:
-        oldest_key = next(iter(_jd_cache))
-        del _jd_cache[oldest_key]
+        chat_completion = client.chat.completions.create(
+            messages=[{"role": "user", "content": prompt}],
+            model="llama3-8b-8192",
+            temperature=0.1,
+            max_tokens=10,
+        )
 
-    embedding = model.encode(job_description[:1000], convert_to_tensor=True)
-    _jd_cache[jd_hash] = embedding
-    return embedding
+        response_text = chat_completion.choices[0].message.content.strip()
+        # Extract number using regex in case model adds extra text
+        match = re.search(r"(\d+)", response_text)
+        if match:
+            score = float(match.group(1))
+            return min(max(score, 0.0), 100.0)
+        return 0.0
 
-
-# ── Weight Profiles ──────────────────────────────────────────────
+    except Exception as e:
+        logger.error(f"Groq semantic scoring error: {e}")
+        return 0.0
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 PROFILES_PATH = os.path.join(BASE_DIR, "data", "weight_profiles.json")
 

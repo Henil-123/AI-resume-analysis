@@ -152,37 +152,6 @@ def get_missing_skills(resume_skills, required_skills):
     return sorted(list(required_set - resume_set))
 
 
-# ── Semantic Scoring ─────────────────────────────────────────────
-
-def calculate_semantic_score(resume_text, job_description):
-    """
-    Semantic similarity using Sentence-BERT.
-    Uses cached model and JD embeddings.
-    Returns: float 0–100
-    """
-    if not resume_text or not job_description:
-        return 0.0
-
-    model = _get_model()
-    if model is None:
-        return 0.0
-
-    try:
-        from sentence_transformers import util
-
-        resume_vec = model.encode(resume_text[:1000], convert_to_tensor=True)
-        jd_vec = _get_jd_embedding(job_description)
-
-        if jd_vec is None:
-            return 0.0
-
-        similarity = util.pytorch_cos_sim(resume_vec, jd_vec)
-        return round(float(similarity) * 100, 1)
-    except Exception as e:
-        logger.error(f"Semantic scoring error: {e}")
-        return 0.0
-
-
 # ── Final Score ──────────────────────────────────────────────────
 
 def calculate_score_breakdown(keyword_score, semantic_score, experience_years,

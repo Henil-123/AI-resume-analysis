@@ -235,7 +235,8 @@ def health():
         "message": "AI Resume Analyzer API is running",
         "groq_connected": groq_ok,
         "groq_error": groq_error,
-        "app_env": os.getenv("APP_ENV", "development")
+        "app_env": os.getenv("APP_ENV", "development"),
+        "visible_env_vars": sorted(list(os.environ.keys()))
     })
 
 

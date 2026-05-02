@@ -219,18 +219,22 @@ def _analyze_single_file(file, job_description, required_skills, required_experi
 @app.route("/health", methods=["GET"])
 def health():
     groq_ok = False
+    groq_error = None
     try:
         from services.job_matcher import _get_groq_client
         client = _get_groq_client()
         if client:
             groq_ok = True
-    except:
-        pass
+        else:
+            groq_error = "GROQ_API_KEY not found in environment"
+    except Exception as e:
+        groq_error = str(e)
     
     return jsonify({
         "status": "ok", 
         "message": "AI Resume Analyzer API is running",
         "groq_connected": groq_ok,
+        "groq_error": groq_error,
         "app_env": os.getenv("APP_ENV", "development")
     })
 

@@ -30,17 +30,21 @@ load_dotenv()
 from utils.logger import setup_logging
 setup_logging()
 logger = logging.getLogger(__name__)
+logging.getLogger("werkzeug").setLevel(logging.INFO) # See every request
 
 # ── Flask app ────────────────────────────────────────────────────
 app = Flask(__name__)
 
 # CORS — allow frontend origins
-is_dev = os.getenv("APP_ENV") != "production" and os.getenv("FLASK_ENV") != "production"
+frontend_url = os.getenv("FRONTEND_URL", "*")
+CORS(app, resources={r"/*": {"origins": frontend_url}}) 
 
-if is_dev:
-    CORS(app, supports_credentials=True) # Allow all in dev
+# Groq Health Check
+groq_key = os.getenv("GROQ_API_KEY")
+if groq_key:
+    logger.info(f"Groq API Key found (ends in ...{groq_key[-4:]})")
 else:
-    CORS(app, origins="*")
+    logger.warning("GROQ_API_KEY is missing! Semantic matching will be disabled.")
 
 # 10MB max upload size
 app.config['MAX_CONTENT_LENGTH'] = 10 * 1024 * 1024
@@ -94,6 +98,7 @@ def _analyze_single_file(file, job_description, required_skills, required_experi
     Core analysis pipeline for a single resume file.
     Returns (result_dict, error_string_or_None)
     """
+    logger.info(f"--- Starting analysis for: {file.filename} ---")
     pipeline = _get_pipeline()
 
     # Save file with unique name
@@ -101,21 +106,23 @@ def _analyze_single_file(file, job_description, required_skills, required_experi
     unique_name = f"{uuid.uuid4().hex}.{file_ext}"
     file_path = os.path.join(UPLOAD_FOLDER, unique_name)
     file.save(file_path)
+    logger.info(f"File saved to: {file_path}")
 
     try:
         # 1. Parse resume
+        logger.info("Step 1: Parsing resume text...")
         parsed = pipeline["parse_resume"](file_path)
-
-        # Handle parse errors gracefully
-        if parsed.get("parse_error"):
-            logger.warning(f"Parse issue for {file.filename}: {parsed['parse_error']}")
+        logger.info(f"Parsing complete. Name found: {parsed.get('name')}")
 
         # 2. Extract skills
+        logger.info("Step 2: Extracting skills...")
         clean_text = parsed.get("clean_text", "")
         skills_found = pipeline["extract_skills"](clean_text)
         skills_by_category = pipeline["extract_skills_with_categories"](clean_text)
+        logger.info(f"Skill extraction complete. Found {len(skills_found)} skills.")
 
         # 3. Experience and education
+        logger.info("Step 3: Analyzing experience/education...")
         experience_years = pipeline["extract_experience_years"](clean_text)
         education = pipeline["extract_education"](clean_text)
 
@@ -124,10 +131,14 @@ def _analyze_single_file(file, job_description, required_skills, required_experi
         normalized_required = [normalize_skill(s) for s in required_skills]
 
         # 5. Calculate scores
+        logger.info("Step 4: Calculating keyword score...")
         keyword_score = pipeline["calculate_match_score"](skills_found, normalized_required)
+        
+        logger.info("Step 5: Calling Groq for Semantic Scoring...")
         semantic_score = pipeline["calculate_semantic_score"](
             clean_text[:1000], job_description
         ) if job_description else 0.0
+        logger.info(f"Semantic scoring complete. Score: {semantic_score}")
 
         score_breakdown = pipeline["calculate_score_breakdown"](
             keyword_score, semantic_score,
@@ -207,7 +218,21 @@ def _analyze_single_file(file, job_description, required_skills, required_experi
 # ── Health check ──────────────────────────────────────────────────
 @app.route("/health", methods=["GET"])
 def health():
-    return jsonify({"status": "ok", "message": "AI Resume Analyzer API is running"})
+    groq_ok = False
+    try:
+        from services.job_matcher import _get_groq_client
+        client = _get_groq_client()
+        if client:
+            groq_ok = True
+    except:
+        pass
+    
+    return jsonify({
+        "status": "ok", 
+        "message": "AI Resume Analyzer API is running",
+        "groq_connected": groq_ok,
+        "app_env": os.getenv("APP_ENV", "development")
+    })
 
 
 # ── Analyze a single resume ───────────────────────────────────────
@@ -588,4 +613,4 @@ if __name__ == "__main__":
     port = int(os.getenv("PORT", 5000))
     is_dev = os.getenv("APP_ENV") != "production" and os.getenv("FLASK_ENV") != "production"
     logger.info(f"AI Resume Analyzer API starting on http://localhost:{port} (debug={is_dev})")
-    app.run(debug=is_dev, port=port)
+    app.run(host='0.0.0.0', debug=is_dev, port=port)

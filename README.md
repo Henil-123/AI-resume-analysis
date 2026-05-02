@@ -5,7 +5,7 @@
 ![Python](https://img.shields.io/badge/Python-3.11-blue)
 ![Flask](https://img.shields.io/badge/Flask-3.0-green)
 ![spaCy](https://img.shields.io/badge/spaCy-3.7-orange)
-![BERT](https://img.shields.io/badge/Sentence--BERT-MiniLM-purple)
+![Groq](https://img.shields.io/badge/Groq-Llama_3.1-orange)
 ![License](https://img.shields.io/badge/License-MIT-yellow)
 
 ---
@@ -15,7 +15,7 @@
 - **Multi-format resume parsing** — PDF, DOCX, TXT via PyPDF2/pdfminer + python-docx
 - **NLP skill extraction** — spaCy PhraseMatcher with 500+ skills across 16 categories
 - **86 skill aliases** — ML → Machine Learning, JS → JavaScript, K8s → Kubernetes, etc.
-- **Semantic matching** — Sentence-BERT (all-MiniLM-L6-v2) for resume-JD similarity
+- **Semantic matching** — Groq AI (Llama 3.1) for high-speed resume-JD similarity
 - **3-signal scoring** — Keyword match + Semantic match + Experience, with configurable weights
 - **3 weight profiles** — Technical (skill-focused), Manager (experience-focused), Entry (breadth-focused)
 - **Multi-resume bulk upload** — Sequential batch analysis with ranked results
@@ -90,7 +90,7 @@ ai-resume-analyzer/
 
 | Layer | Technology |
 |-------|-----------|
-| NLP | spaCy 3.7 (PhraseMatcher + NER), Sentence-Transformers (all-MiniLM-L6-v2) |
+| NLP | spaCy 3.7 (PhraseMatcher + NER), Groq AI (Llama 3.1) |
 | Backend | Python 3.11, Flask 3.0, Flask-CORS, Gunicorn |
 | Database | MongoDB Atlas (optional) / Local JSON (zero config) |
 | Frontend | Vanilla JS, Chart.js 4.4 |

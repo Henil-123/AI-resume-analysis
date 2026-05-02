@@ -728,7 +728,16 @@ input[type=file]{display:none;}
 <script>
 let API = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || window.location.hostname === '')
   ? 'http://localhost:5000'
-  : 'https://ai-resume-analyzer-dx0p.onrender.com';
+  : window.location.origin + '/api';
+
+function uiLog(msg, color='var(--text3)') {
+  const logBar = document.getElementById('debug-log');
+  if (logBar) {
+    logBar.style.display = 'block';
+    logBar.innerHTML = `<span style="color:${color}">[${new Date().toLocaleTimeString()}]</span> ${msg}`;
+  }
+  console.log(`[UI] ${msg}`);
+}
 let allCands = [], filteredCands = [], selectedIds = new Set();
 let curPage = 1; const perPage = 15;
 let radarI = null, pieI = null, distI = null, eduI = null;
@@ -1069,9 +1078,11 @@ function startLoader(msg) {
 function stopLoader() { clearInterval(lsTimer); document.getElementById('loader').classList.remove('on'); }
 
 async function doAnalyze() {
-  const err = document.getElementById('an-err');
-  err.classList.remove('on');
-  if (!selFiles.length) { err.textContent = '⚠ Please select at least one resume file.'; err.classList.add('on'); return; }
+  uiLog('--- Analysis Started (v2.0) ---');
+  try {
+    const err = document.getElementById('an-err');
+    err.classList.remove('on');
+    if (!selFiles.length) { err.textContent = '⚠ Please select at least one resume file.'; err.classList.add('on'); return; }
 
   const btn = document.getElementById('run-btn');
   btn.disabled = true;
@@ -1092,7 +1103,8 @@ async function doAnalyze() {
     const fiEl = document.getElementById('fi-' + i);
 
     // Update UI
-    btn.querySelector('span').textContent = isMulti ? `Analyzing ${i+1} of ${total}...` : 'Analyzing...';
+    const btnSpan = btn.querySelector('span');
+    if (btnSpan) btnSpan.textContent = isMulti ? `Analyzing ${i+1} of ${total}...` : 'Analyzing...';
     if (fiEl) { fiEl.classList.add('processing'); fiEl.classList.remove('done','error'); }
     const statusEl = document.getElementById('fi-status-' + i);
     if (statusEl) statusEl.innerHTML = '<span style="color:var(--primary)">⟳ Processing...</span>';
@@ -1105,21 +1117,24 @@ async function doAnalyze() {
 
     // Show loader
     startLoader(isMulti ? `Analyzing ${i+1} of ${total}` : 'Analyzing Resume');
+    uiLog(`🚀 Sending request to ${API}/analyze...`);
 
     const fd = new FormData();
     fd.append('resume', file);
-    fd.append('required_skills', document.getElementById('r-skills').value);
-    fd.append('job_description', document.getElementById('r-jd').value);
-    fd.append('required_experience', document.getElementById('r-exp').value);
-    if (currentProfile) fd.append('profile', currentProfile);
+    fd.append('required_skills', document.getElementById('r-skills').value || '');
+    fd.append('job_description', document.getElementById('r-jd').value || '');
+    fd.append('required_experience', document.getElementById('r-exp').value || '0');
 
     // Timeout: 120s for analysis (Render cold start can take ~60s)
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 120000);
 
     try {
+      uiLog(`🌐 Fetching ${API}/analyze...`);
       const r = await fetch(API + '/analyze', { method: 'POST', body: fd, signal: controller.signal });
       clearTimeout(timeoutId);
+      
+      uiLog(`✅ Response received: ${r.status}`, 'var(--green)');
       const d = await r.json();
 
       if (r.ok) {
@@ -1136,16 +1151,21 @@ async function doAnalyze() {
       }
     } catch (e) {
       clearTimeout(timeoutId);
+      stopLoader();
+      btn.disabled = false;
+      btn.querySelector('span').textContent = '→ Run Analysis';
+      
+      const errorMsg = (e.name === 'AbortError') 
+        ? 'Request timed out after 2 minutes. The backend may be starting up.' 
+        : `Network Error: ${e.message}. \nCheck your connection or Settings.`;
+      
+      uiLog(`❌ ${errorMsg}`, 'var(--red)');
+      alert('❌ ' + errorMsg);
+      
       if (fiEl) fiEl.classList.replace('processing', 'error');
-      if (e.name === 'AbortError') {
-        if (statusEl) statusEl.innerHTML = '<span style="color:var(--red)">✕ Timeout — backend may be starting up, try again</span>';
-        err.textContent = '⚠ Request timed out after 2 minutes. The backend server may be waking up (Render free tier). Please wait 30 seconds and try again.';
-        err.classList.add('on');
-      } else {
-        if (statusEl) statusEl.innerHTML = '<span style="color:var(--red)">✕ Network error — check backend connection</span>';
-        err.textContent = '⚠ Cannot reach the backend server. Check Settings → API URL.';
-        err.classList.add('on');
-      }
+      if (statusEl) statusEl.innerHTML = `<span style="color:var(--red)">✕ Error</span>`;
+      err.textContent = '⚠ ' + errorMsg;
+      err.classList.add('on');
     } finally {
       stopLoader();
     }
@@ -1163,11 +1183,27 @@ async function doAnalyze() {
 
   // Show results
   if (batchResults.length === 1) {
-    // Single file — show detailed result
     renderResult(batchResults[0]);
   } else if (batchResults.length > 1) {
-    // Multi file — show batch ranked summary
     renderBatchResults();
+  }
+  } catch (outerError) {
+    console.error('CRITICAL UI ERROR:', outerError);
+    uiLog(`❌ CRITICAL ERROR: ${outerError.message}`, 'var(--red)');
+    alert('❌ CRITICAL APP ERROR: ' + outerError.message);
+    stopLoader();
+    const btn = document.getElementById('run-btn');
+    if (btn) {
+      btn.disabled = false;
+      btn.querySelector('span').textContent = '→ Run Analysis';
+    }
+  }
+}
+
+function resetToDefaults() {
+  if (confirm('Are you sure you want to clear all app settings and cache?')) {
+    localStorage.clear();
+    location.reload();
   }
 }
 
@@ -1480,5 +1516,11 @@ checkAPI();
 setInterval(checkAPI, 15000);
 loadCands();
 </script>
-</body>
+  <div class="load-overlay" id="loader">
+    <div class="spin"></div>
+    <div class="load-title" id="load-title">Analyzing Resume</div>
+    <div class="load-step" id="load-step">Extracting text...</div>
+  </div>
+  <div id="debug-log" style="position:fixed;bottom:0;left:0;right:0;background:rgba(0,0,0,0.8);color:#fff;font-family:monospace;font-size:10px;padding:4px 10px;z-index:9999;display:none;border-top:1px solid var(--border)"></div>
+ </body>
 </html>

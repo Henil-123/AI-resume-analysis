@@ -1,0 +1,17 @@
+Amit Kumar
+Email: amit.kumar@email.com
+
+EDUCATION
+Bachelor of Commerce (B.Com)
+Mumbai University — 2022
+
+EXPERIENCE
+1 year of experience
+
+Intern at WebDev Studio (2022-2023)
+- Built websites using HTML, CSS, and JavaScript
+- Basic knowledge of React
+- Used Git for version control
+
+SKILLS
+HTML, CSS, JavaScript, React, Git

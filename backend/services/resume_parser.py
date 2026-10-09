@@ -1,35 +1,8 @@
-"""
-Resume Parser — Extracts structured data from PDF, DOCX, and TXT resumes.
-
-Features:
-- Multi-format text extraction (PDF via PyPDF2/pdfminer, DOCX, TXT)
-- spaCy NER-based name extraction with heuristic fallback
-- Email, phone, LinkedIn extraction
-- Confidence scoring (high/medium/low) based on data quality
-- Graceful handling of empty/corrupted files
-"""
-
 import re
 import os
-import logging
-
-logger = logging.getLogger(__name__)
-
-# ── spaCy model (loaded once) ────────────────────────────────────
-_nlp = None
-
-def _get_nlp():
-    global _nlp
-    if _nlp is None:
-        import spacy
-        _nlp = spacy.load("en_core_web_sm")
-    return _nlp
-
-
-# ── Text Extraction ──────────────────────────────────────────────
 
 def extract_text_from_pdf(file_path):
-    """Extract raw text from a PDF file. Falls back to pdfminer if PyPDF2 fails."""
+    """Extract raw text from a PDF file."""
     text = ""
     try:
         import PyPDF2
@@ -40,12 +13,12 @@ def extract_text_from_pdf(file_path):
                 if extracted:
                     text += extracted + "\n"
     except Exception as e:
-        logger.warning(f"PyPDF2 failed: {e}, trying pdfminer...")
+        print(f"PyPDF2 failed: {e}, trying pdfminer...")
         try:
             from pdfminer.high_level import extract_text
             text = extract_text(file_path)
         except Exception as e2:
-            logger.error(f"pdfminer also failed: {e2}")
+            print(f"pdfminer also failed: {e2}")
             text = ""
     return text
 
@@ -58,7 +31,7 @@ def extract_text_from_docx(file_path):
         text = "\n".join([para.text for para in doc.paragraphs])
         return text
     except Exception as e:
-        logger.error(f"DOCX extraction failed: {e}")
+        print(f"DOCX extraction failed: {e}")
         return ""
 
 
@@ -76,207 +49,97 @@ def extract_text(file_path):
         return ""
 
 
-# ── Text Cleaning ────────────────────────────────────────────────
-
 def clean_text(text):
     """Clean and normalize extracted resume text."""
     if not text:
         return ""
     text = text.lower()
-    text = re.sub(r'[^\w\s\.\+\#\@\-\/]', ' ', text)
+    text = re.sub(r'[^\w\s\.\+\#]', ' ', text)
     text = re.sub(r'\s+', ' ', text).strip()
     return text
 
 
-# ── Entity Extraction ────────────────────────────────────────────
-
 def extract_email(text):
     """Extract email address from text."""
-    pattern = r'[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}'
+    pattern = r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'
     matches = re.findall(pattern, text)
     return matches[0] if matches else None
 
 
 def extract_phone(text):
-    """Extract phone number from text (supports international formats)."""
-    patterns = [
-        r'[\+]?[0-9]{1,3}[-\s\.]?[(]?[0-9]{3}[)]?[-\s\.]?[0-9]{3}[-\s\.]?[0-9]{4,6}',
-        r'[(]?[0-9]{3}[)]?[-\s\.]?[0-9]{3}[-\s\.]?[0-9]{4,6}',
-        r'[\+]?[0-9]{10,13}',
-    ]
-    for pattern in patterns:
-        matches = re.findall(pattern, text)
-        if matches:
-            # Return the longest match (most complete number)
-            return max(matches, key=len).strip()
-    return None
+    """Extract phone number from text."""
+    pattern = r'[\+]?[(]?[0-9]{3}[)]?[-\s\.]?[0-9]{3}[-\s\.]?[0-9]{4,6}'
+    matches = re.findall(pattern, text)
+    return matches[0] if matches else None
 
 
-def extract_linkedin(text):
-    """Extract LinkedIn profile URL from text."""
-    patterns = [
-        r'(?:https?://)?(?:www\.)?linkedin\.com/in/[\w\-]+/?',
-        r'linkedin\.com/in/[\w\-]+/?',
-    ]
-    for pattern in patterns:
-        matches = re.findall(pattern, text, re.IGNORECASE)
-        if matches:
-            url = matches[0]
-            if not url.startswith("http"):
-                url = "https://" + url
-            return url
-    return None
-
-
-def _load_known_skills():
-    """Load skill names to filter them out of NER name detection."""
-    try:
-        import json
-        base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-        skills_path = os.path.join(base_dir, "data", "skills", "skills_dataset.json")
-        if os.path.exists(skills_path):
-            with open(skills_path, "r") as f:
-                data = json.load(f)
-            # Flatten all skill names into a lowercase set
-            return {s.lower() for cat_skills in data.values() for s in cat_skills}
-    except Exception as e:
-        logger.warning(f"Could not load skills for name filter: {e}")
-    return set()
-
-_known_skills_for_name_filter = _load_known_skills()
-
-# Common brand/tool names that spaCy misclassifies as PERSON entities
-_BRAND_BLACKLIST = {
-    "adobe xd", "adobe photoshop", "adobe illustrator", "visual studio",
-    "google cloud", "amazon web services", "microsoft azure",
-    "apache kafka", "elastic search", "mongo db",
-}
-
-
-def extract_name_ner(text):
-    """
-    Extract candidate name using spaCy Named Entity Recognition.
-    Looks for PERSON entities in the first few lines of the resume.
-    Filters out entities that match known skill/tool/brand names.
-    """
-    try:
-        nlp = _get_nlp()
-        # Only process first 500 chars (name is usually at the top)
-        header_text = text[:500]
-        doc = nlp(header_text)
-        for ent in doc.ents:
-            if ent.label_ == "PERSON":
-                name = ent.text.strip().split('\n')[0] # Take only first line
-                # Validate: should be 2-5 words, no numbers
-                words = name.split()
-                if 1 < len(words) <= 5 and not any(c.isdigit() for c in name):
-                    # Skip if this "name" is actually a known skill or brand
-                    name_lower = name.lower().strip()
-                    if name_lower in _known_skills_for_name_filter:
-                        logger.debug(f"Skipping NER name '{name}' — matches a known skill")
-                        continue
-                    if name_lower in _BRAND_BLACKLIST:
-                        logger.debug(f"Skipping NER name '{name}' — matches a known brand")
-                        continue
-                    return name.title()
-        return None
-    except Exception as e:
-        logger.warning(f"NER name extraction failed: {e}")
-        return None
-
-
-def extract_name_heuristic(text):
-    """Fallback: Try to extract candidate name from first lines of resume."""
-    lines = text.strip().split('\n')
-    for line in lines[:5]:
-        line = line.strip()
-        # Skip empty lines or lines that look like headers/contact info
-        if len(line) < 3 or len(line) > 50:
-            continue
-        
-        lower_line = line.lower()
-        if any(lower_line.startswith(p) for p in ['email:', 'phone:', 'linkedin:', 'address:', 'github:']):
-            continue
-
-        if any(
-            c in lower_line for c in ['@', '.com', 'http', '|', '+91', '+1',
-                                         'resume', 'curriculum', 'objective',
-                                         'summary', 'address', 'phone', 'email']
-        ):
-            continue
-
-        words = line.split()
-        if 1 < len(words) <= 5 and not any(c.isdigit() for c in line):
-            return line.title()
-            
-    return "Unknown Candidate"
+def extract_links(text):
+    """Extract LinkedIn / GitHub / portfolio URLs."""
+    links = {}
+    m = re.search(r'(https?://)?(www\.)?linkedin\.com/[^\s,;)]+', text, re.IGNORECASE)
+    if m:
+        links["linkedin"] = m.group(0)
+    m = re.search(r'(https?://)?(www\.)?github\.com/[^\s,;)]+', text, re.IGNORECASE)
+    if m:
+        links["github"] = m.group(0)
+    return links
 
 
 def extract_name(text):
-    """Extract name: NER first, heuristic fallback."""
-    ner_name = extract_name_ner(text)
-    if ner_name:
-        return ner_name
-    return extract_name_heuristic(text)
+    """Try to extract candidate name from first lines of resume."""
+    lines = text.strip().split('\n')
+    skip_tokens = ['@', '.com', 'http', '|', '+91', '+1', 'resume', 'curriculum', 'cv',
+                   'linkedin', 'github', 'phone', 'email', 'address']
+    for line in lines[:8]:
+        line = line.strip().strip('|-,•·')
+        low = line.lower()
+        if len(line) < 3 or len(line) > 50:
+            continue
+        if any(t in low for t in skip_tokens):
+            continue
+        if re.search(r'\d', line):
+            continue
+        words = line.split()
+        if 1 < len(words) <= 5 and all(w[0].isupper() or w.isupper() for w in words if w):
+            return line.title()
+        if 1 < len(words) <= 4 and len(words) == len(re.findall(r'[A-Z][a-z]+|[A-Z]+', line)):
+            return line.title()
+    return "Unknown Candidate"
 
 
-# ── Main Parser ──────────────────────────────────────────────────
+def estimate_experience_from_dates(text):
+    """Estimate experience from year ranges like 2019-2023 / 2020-Present."""
+    current_year = 2026
+    max_span = 0
+    # e.g. 2019 - 2023, 2019–Present, 2019 to 2022
+    pattern = r'(19|20)\d{2}\s*(?:-|–|—|to)\s*((?:19|20)\d{2}|present|current|now)'
+    for m in re.finditer(pattern, text, re.IGNORECASE):
+        start = int(m.group(0)[:4])
+        end_raw = m.group(2).lower()
+        end = current_year if not end_raw[:2].isdigit() else int(end_raw[:4])
+        span = end - start
+        if 0 < span < 50:
+            max_span = max(max_span, span)
+    # single start year with present, e.g. "since 2019"
+    m2 = re.search(r'since\s+((?:19|20)\d{2})', text, re.IGNORECASE)
+    if m2:
+        span = current_year - int(m2.group(1))
+        if 0 < span < 50:
+            max_span = max(max_span, span)
+    return max_span
+
 
 def parse_resume(file_path):
-    """
-    Main function: parse resume and return structured data.
-
-    Returns dict with:
-    - raw_text, clean_text: extracted text
-    - name, email, phone, linkedin: contact info
-    - word_count: resume length
-    - confidence: "high" / "medium" / "low" based on extraction quality
-    - parse_error: set if resume couldn't be parsed properly
-    """
+    """Main function: parse resume and return structured data."""
     raw_text = extract_text(file_path)
-
-    # Handle empty or too-short resumes
-    if not raw_text or len(raw_text.strip()) < 50:
-        return {
-            "raw_text": raw_text or "",
-            "clean_text": "",
-            "name": "Unknown Candidate",
-            "email": None,
-            "phone": None,
-            "linkedin": None,
-            "word_count": 0,
-            "confidence": "low",
-            "parse_error": "Resume text too short or unreadable"
-        }
-
     clean = clean_text(raw_text)
-    name = extract_name(raw_text)
-    email = extract_email(raw_text)
-    phone = extract_phone(raw_text)
-    linkedin = extract_linkedin(raw_text)
-
-    # Calculate confidence based on how much data we extracted
-    found_count = sum(1 for x in [
-        name != "Unknown Candidate",
-        email is not None,
-        phone is not None
-    ] if x)
-
-    if found_count >= 3:
-        confidence = "high"
-    elif found_count >= 2:
-        confidence = "medium"
-    else:
-        confidence = "low"
-
+    links = extract_links(raw_text)
     return {
         "raw_text": raw_text,
         "clean_text": clean,
-        "name": name,
-        "email": email,
-        "phone": phone,
-        "linkedin": linkedin,
-        "word_count": len(clean.split()),
-        "confidence": confidence,
-        "parse_error": None
+        "email": extract_email(raw_text),
+        "phone": extract_phone(raw_text),
+        "name": extract_name(raw_text),
+        "links": links,
+        "word_count": len(clean.split())
     }

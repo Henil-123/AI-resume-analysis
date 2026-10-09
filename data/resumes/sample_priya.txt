@@ -1,0 +1,25 @@
+Priya Patel
+Email: priya.patel@email.com
+Phone: +91 8765432109
+
+EDUCATION
+Master of Science in Data Science
+Stanford University — 2020
+
+EXPERIENCE
+4 years of experience in data science
+
+Machine Learning Engineer at AI Solutions (2022-Present)
+- Developed computer vision models using PyTorch and OpenCV
+- Built recommendation systems for e-commerce platforms
+- Deployed models with Docker and Kubernetes
+
+Junior Data Scientist at Analytics Hub (2020-2022)
+- Created predictive models using scikit-learn
+- Performed statistical analysis and hypothesis testing
+- Worked with PostgreSQL and MongoDB databases
+
+SKILLS
+Python, Machine Learning, Deep Learning, PyTorch, Computer Vision,
+Docker, Kubernetes, PostgreSQL, MongoDB, Git, 
+Scikit-learn, Pandas, NumPy, Statistical Analysis

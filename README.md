@@ -5,29 +5,20 @@
 ![Python](https://img.shields.io/badge/Python-3.11-blue)
 ![Flask](https://img.shields.io/badge/Flask-3.0-green)
 ![spaCy](https://img.shields.io/badge/spaCy-3.7-orange)
-![Groq](https://img.shields.io/badge/Groq-Llama_3.1-orange)
-![License](https://img.shields.io/badge/License-MIT-yellow)
+![License](https://img.shields.io/badge/License-MIT-purple)
 
 ---
 
 ## ✨ Features
 
-- **Multi-format resume parsing** — PDF, DOCX, TXT via PyPDF2/pdfminer + python-docx
-- **NLP skill extraction** — spaCy PhraseMatcher with 500+ skills across 16 categories
-- **86 skill aliases** — ML → Machine Learning, JS → JavaScript, K8s → Kubernetes, etc.
-- **Semantic matching** — Groq AI (Llama 3.1) for high-speed resume-JD similarity
-- **3-signal scoring** — Keyword match + Semantic match + Experience, with configurable weights
-- **3 weight profiles** — Technical (skill-focused), Manager (experience-focused), Entry (breadth-focused)
-- **Multi-resume bulk upload** — Sequential batch analysis with ranked results
-- **Candidate management** — View, filter, sort, compare, status updates, bulk actions
-- **AI explanations** — Auto-generated strengths, weaknesses, warnings, and verdict
-- **Dashboard analytics** — Score distribution, top skills, education breakdown, top candidates
-- **CSV export** — Download filtered candidate data with all fields
-- **Printable reports** — Browser-printable ranked candidate summary
-- **Duplicate detection** — SHA-256 hash prevents re-analyzing the same resume
-- **JWT authentication** — Signup/login with token-based auth
-- **MongoDB + JSON fallback** — Works with MongoDB Atlas or zero-config local JSON storage
-- **Docker + Cloud ready** — Dockerfile, Render.yaml, Vercel config included
+- **PDF / DOCX / TXT** resume parsing
+- **NLP skill extraction** using spaCy PhraseMatcher (200+ skills)
+- **Semantic matching** using Sentence-BERT
+- **Candidate scoring** with keyword + semantic + experience signals
+- **Dashboard** with score distribution and top skills analytics
+- **Candidate management** — view, rank, delete
+- **MongoDB** support with local JSON fallback (no setup needed)
+- **Cloud ready** — Docker + AWS EC2 + S3 support
 
 ---
 
@@ -54,34 +45,21 @@ Then open `frontend/index.html` in your browser.
 ```
 ai-resume-analyzer/
 ├── backend/
-│   ├── app.py                        # Flask API server (14 endpoints)
-│   ├── requirements.txt
-│   ├── .env.example                  # Environment template
+│   ├── app.py                    # Flask API server
 │   ├── services/
-│   │   ├── resume_parser.py          # PDF/DOCX/TXT text extraction + NER
-│   │   ├── skill_extractor.py        # spaCy PhraseMatcher skill detection
-│   │   ├── job_matcher.py            # BERT scoring engine + weight profiles
-│   │   ├── explainer.py              # AI explanation generator
-│   │   └── export.py                 # CSV export service
+│   │   ├── resume_parser.py      # PDF/DOCX text extraction
+│   │   ├── skill_extractor.py    # NLP skill detection (spaCy)
+│   │   └── job_matcher.py        # Scoring engine + BERT
 │   ├── database/
-│   │   └── db_handler.py             # MongoDB + local JSON fallback
-│   └── utils/
-│       ├── auth.py                   # JWT authentication
-│       └── logger.py                 # Structured logging
+│   │   └── db_handler.py         # MongoDB + local JSON fallback
+│   └── requirements.txt
 ├── frontend/
-│   ├── index.html                    # Complete SPA (no build step)
-│   └── vercel.json                   # Vercel deployment config
+│   └── index.html                # Complete UI (no build step)
 ├── data/
-│   ├── skills/
-│   │   ├── skills_dataset.json       # 500+ skills, 16 categories
-│   │   └── skill_aliases.json        # 86 abbreviation mappings
-│   ├── weight_profiles.json          # 3 scoring weight profiles
-│   └── resumes/                      # Upload directory
+│   └── skills/skills_dataset.json  # 200+ skills database
 ├── deployment/
-│   └── Dockerfile                    # Production Docker image
-├── render.yaml                       # Render.com deployment config
-├── setup.sh                          # One-command setup script
-└── .gitignore
+│   └── Dockerfile
+└── setup.sh                      # One-command setup
 ```
 
 ---
@@ -90,11 +68,12 @@ ai-resume-analyzer/
 
 | Layer | Technology |
 |-------|-----------|
-| NLP | spaCy 3.7 (PhraseMatcher + NER), Groq AI (Llama 3.1) |
-| Backend | Python 3.11, Flask 3.0, Flask-CORS, Gunicorn |
-| Database | MongoDB Atlas (optional) / Local JSON (zero config) |
-| Frontend | Vanilla JS, Chart.js 4.4 |
-| Deployment | Docker, Render (backend), Vercel (frontend) |
+| NLP | spaCy, NLTK, Sentence-Transformers (BERT) |
+| Backend | Python 3.11, Flask, Flask-CORS |
+| Database | MongoDB Atlas (optional) / Local JSON |
+| Storage | Local / AWS S3 (optional) |
+| Frontend | Vanilla JS, Chart.js |
+| Deployment | Docker, AWS EC2, Vercel |
 
 ---
 
@@ -102,20 +81,13 @@ ai-resume-analyzer/
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| `GET` | `/health` | API status check |
-| `POST` | `/analyze` | Upload and analyze a single resume |
-| `POST` | `/analyze/bulk` | Batch analyze multiple resumes |
-| `GET` | `/candidates` | List all candidates (sorted, filtered) |
-| `GET` | `/candidates/:id` | Get single candidate details |
-| `PATCH` | `/candidates/:id/status` | Update status (shortlisted/rejected/maybe) |
-| `DELETE` | `/candidates/:id` | Delete a candidate |
-| `POST` | `/compare` | Side-by-side candidate comparison |
-| `GET` | `/stats` | Dashboard statistics |
-| `GET` | `/profiles` | Get weight profiles |
-| `GET` | `/export/csv` | Download candidates as CSV |
-| `DELETE` | `/clear` | Clear all candidates (dev only) |
-| `POST` | `/auth/signup` | Register new user |
-| `POST` | `/auth/login` | Authenticate user |
+| GET | `/health` | API status check |
+| POST | `/analyze` | Upload and analyze resume |
+| GET | `/candidates` | Get all candidates (sorted by score) |
+| GET | `/candidates/:id` | Get single candidate |
+| DELETE | `/candidates/:id` | Delete a candidate |
+| GET | `/stats` | Dashboard statistics |
+| DELETE | `/clear` | Clear all candidates |
 
 ---
 
@@ -127,13 +99,11 @@ Edit `backend/.env`:
 PORT=5000
 MONGO_URI=            # Leave empty to use local JSON storage
 DB_NAME=resume_analyzer
-JWT_SECRET=your-random-secret-here
 
-# Optional: AWS S3 for resume file storage
+# Optional AWS S3
 AWS_ACCESS_KEY_ID=
 AWS_SECRET_ACCESS_KEY=
 AWS_BUCKET_NAME=
-AWS_REGION=us-east-1
 ```
 
 ---
@@ -142,58 +112,35 @@ AWS_REGION=us-east-1
 
 ```bash
 docker build -f deployment/Dockerfile -t resume-analyzer .
-docker run -p 5000:5000 -e JWT_SECRET=your-secret resume-analyzer
+docker run -p 5000:5000 resume-analyzer
 ```
 
 ---
 
-## ☁️ Cloud Deployment
+## 📈 How Scoring Works (precision model)
 
-### Backend (Render)
-1. Push code to GitHub
-2. Connect to [Render.com](https://render.com)
-3. Create new Web Service from `render.yaml`
-4. Set `MONGO_URI` environment variable (optional)
+| Signal | Weight | Description |
+|--------|--------|-------------|
+| Weighted skill coverage | 45% | JD section weights (must-have ×2, nice-to-have ×0.7, frequency emphasis) × applicant-pool IDF rarity, alias-aware + fuzzy typo recovery |
+| Semantic fit | 30% | BGE chunked MaxSim (each JD chunk takes its best resume chunk) + global cosine; model cached, JD embedded once per batch |
+| Experience | 15% | Years vs required, with date-range inference |
+| Education | 10% | Degree-level fit |
 
-### Frontend (Vercel)
-1. Import `frontend/` folder to [Vercel](https://vercel.com)
-2. `vercel.json` handles API proxy rewrites automatically
+Must-have gate: −6 pts per missing core skill (capped at −24), so resumes lacking core requirements can't top the ranking on nice-to-haves alone. If no JD/model is available, the semantic weight redistributes to skills.
 
----
+Empty or unreadable resume files are rejected with a per-file error instead of scoring 0 as "Unknown Candidate". Typos missed by skill extraction (e.g. `pythn`) are recovered by scanning raw resume text at partial credit.
 
-## 📈 How Scoring Works
-
-| Signal | Default Weight | Description |
-|--------|---------------|-------------|
-| Keyword match | 60% | Skills found vs required skills (set intersection) |
-| Semantic match | 30% | BERT cosine similarity of resume vs job description |
-| Experience | 10% | Years of experience vs required years |
-
-### Weight Profiles
-
-| Profile | Skills | Semantic | Experience | Best for |
-|---------|--------|----------|------------|----------|
-| Technical | 60% | 30% | 10% | Engineering, developer roles |
-| Manager | 30% | 50% | 20% | Leadership, management roles |
-| Entry | 70% | 20% | 10% | Junior, intern roles |
-
-### Score Labels
-**Strong Match** (80%+) · **Good Match** (60-79%) · **Partial Match** (40-59%) · **Weak Match** (<40%)
+Score labels: **Strong Match** (80%+) · **Good Match** (60-79%) · **Partial** (40-59%) · **Weak** (<40%)
 
 ---
 
 ## 🗺 Roadmap
 
-- [x] Multi-resume bulk upload with ranked results
-- [x] Export candidates to CSV
-- [x] Weight profiles (Technical/Manager/Entry)
-- [x] Candidate comparison
-- [x] AI-generated explanations
-- [x] Print-ready reports
+- [ ] Multi-resume bulk upload
 - [ ] ATS score improvement suggestions
 - [ ] AI chatbot for HR queries
 - [ ] Resume improvement recommendations
-- [ ] Email notifications for shortlisted candidates
+- [ ] Export candidates to CSV/Excel
 
 ---
 

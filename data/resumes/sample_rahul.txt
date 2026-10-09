@@ -1,0 +1,25 @@
+Rahul Sharma
+Email: rahul.sharma@email.com
+Phone: +91 9876543210
+
+EDUCATION
+Bachelor of Technology (B.Tech) in Computer Science
+Indian Institute of Technology, Delhi — 2018
+
+EXPERIENCE
+7 years of experience in software development
+
+Senior Data Scientist at TechCorp (2021-Present)
+- Built machine learning models for recommendation systems
+- Led a team of 5 data engineers
+- Implemented NLP pipelines using Python, spaCy, and transformers
+
+Data Analyst at DataWorks (2018-2021)
+- Performed data analysis using Python, SQL, and Pandas
+- Built dashboards using Tableau and Power BI
+- Worked with AWS services (S3, EC2, Lambda)
+
+SKILLS
+Python, Machine Learning, Deep Learning, SQL, AWS, Docker, 
+Pandas, NumPy, Scikit-learn, TensorFlow, Natural Language Processing,
+Git, Linux, Data Analysis, Data Visualization, REST API

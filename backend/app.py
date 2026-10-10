@@ -2,9 +2,14 @@ import os
 import uuid
 from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
+from werkzeug.utils import secure_filename
 from dotenv import load_dotenv
 
 load_dotenv()
+
+# Versioned in-memory analysis store (backed by the same DB records;
+# analyses reference candidate ids so reports survive restarts via /candidates).
+_ANALYSES = {}
 
 FRONTEND_DIR = os.path.join(os.path.dirname(__file__), "..", "frontend")
 app = Flask(__name__, static_folder=FRONTEND_DIR, static_url_path="")
@@ -24,6 +29,67 @@ MAX_FILE_MB = int(os.getenv("MAX_FILE_MB", "10"))
 
 def allowed_file(filename):
     return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXTENSIONS
+
+
+def allowed_file(filename):
+    name = secure_filename(filename or "")
+    return "." in name and name.rsplit(".", 1)[1].lower() in ALLOWED_EXTENSIONS
+
+
+def _prompt_injection_note(*texts):
+    """Flag prompt-injection-looking content as data (never executed)."""
+    import re
+    pat = re.compile(r"(ignore (previous|all) instructions|system prompt|jailbreak|"
+                     r"you are now|disregard (the|your) instructions)", re.I)
+    for t in texts:
+        if t and pat.search(t):
+            return ("Upload contains instruction-like text; treated strictly as data, "
+                    "never executed. Scores use deterministic + embedding signals only.")
+    return ""
+
+
+def _run_explainable(parsed, skills_found, experience_years, education,
+                     job_description, jd_meta, required_skills,
+                     required_experience, fuzzy_hits=None, weights_override=None):
+    """Full explainable pipeline (requirements -> evidence -> R_i -> S -> report).
+
+    Raises ValueError on insufficient data; never fabricates model output.
+    """
+    from services.requirement_extractor import extract_requirements
+    from services.evidence_extractor import extract_evidence
+    from services.scoring_engine import analyze as engine_analyze, get_config
+    from services.eligibility_checker import check_eligibility
+    from services.report_generator import build_report, analyze_gaps
+
+    requirements = extract_requirements(job_description or "", jd_meta)
+    if not requirements:
+        raise ValueError("insufficient-data: no scoreable requirements extracted from JD")
+    evidence = extract_evidence(parsed, skills_found)
+    analysis = engine_analyze(requirements, skills_found, evidence,
+                              parsed.get("clean_text", ""), experience_years,
+                              required_experience, fuzzy_hits, weights_override=weights_override)
+    if analysis.get("status") != "ok":
+        raise ValueError(analysis.get("reason", "insufficient-data"))
+    req_scores = analysis["requirements"]
+    eligibility = check_eligibility(requirements, evidence, education,
+                                    experience_years, required_experience, jd_meta)
+    gaps = analyze_gaps(req_scores)
+    inj = _prompt_injection_note(parsed.get("raw_text", ""), job_description or "")
+    errors = ([inj] if inj else []) + (
+        [f"semantic unavailable: {r['semantic_error']}" for r in req_scores
+         if r.get("semantic_error")][:1])
+    report = build_report(
+        {"name": parsed.get("name"), "education": education,
+         "experience_years": experience_years},
+        requirements, req_scores, analysis["aggregate"], eligibility,
+        evidence, jd_meta, gaps,
+        extraction_status=parsed.get("extraction_status", "ok"),
+        errors=errors)
+    return {"requirements": requirements, "evidence": evidence[:100],
+            "evidence_total": len(evidence), "requirement_scores": req_scores,
+            "aggregate": analysis["aggregate"], "eligibility": eligibility,
+            "gaps": gaps, "report": report,
+            "config_version": analysis.get("config_version")}
 
 
 def _resolve_required_skills(required_skills, job_description):
@@ -113,8 +179,15 @@ def _extract_resume(file_path):
 
 
 def _score_extracted(ext, required_skills, required_experience, job_description,
-                     skill_weights=None, idf=None, must_have=None):
-    """Pass 2: precision-score an extracted resume against the JD."""
+                     skill_weights=None, idf=None, must_have=None, jd_meta=None,
+                     weights_override=None):
+    """Pass 2: precision-score an extracted resume against the JD.
+
+    Legacy precision score fields are always computed (existing JS contracts).
+    The explainable engine (requirements/evidence/R_i/S/eligibility/report)
+    is attached additively as result["explainable"]; if it fails, the legacy
+    score still returns and the failure is recorded, never hidden.
+    """
     from services.job_matcher import (
         calculate_semantic_score,
         calculate_weighted_skill_score,
@@ -185,6 +258,22 @@ def _score_extracted(ext, required_skills, required_experience, job_description,
     result["strengths"] = generate_strengths(result, required_skills)
     result["weaknesses"] = generate_weaknesses(result, required_skills)
     result["summary"] = generate_resume_summary(result)
+    # ── Explainable layer (additive; never breaks legacy contracts) ──
+    try:
+        if job_description:
+            result["explainable"] = _run_explainable(
+                parsed, skills_found, experience_years, education,
+                job_description, jd_meta or {}, required_skills,
+                required_experience, weighted["fuzzy_matches"],
+                weights_override)
+        else:
+            result["explainable"] = {"status": "insufficient-data",
+                                     "reason": "no job description provided"}
+    except ValueError as ve:
+        result["explainable"] = {"status": "insufficient-data", "reason": str(ve)}
+    except Exception as e:
+        result["explainable"] = {"status": "error",
+                                 "reason": f"explainable engine failed: {e}"[:300]}
     return result
 
 
@@ -199,7 +288,8 @@ def _analyze_single_file(file_path, required_skills, required_experience, job_de
     ext = _extract_resume(file_path)
     ext["skills_auto"] = skills_auto
     result = _score_extracted(ext, required_skills, required_experience,
-                              job_description, skill_weights, idf, must_have)
+                              job_description, skill_weights, idf, must_have,
+                              jd_meta)
     return result
 
 
@@ -223,7 +313,315 @@ def health():
     # Keys kept for backward compatibility with older dashboards.
     info["groq_connected"] = False
     info["groq_error"] = "Groq retired; local precision engine in use"
+    try:
+        from services.scoring_engine import get_config, FORMULA_VERSION
+        cfg = get_config()
+        info["config_version"] = cfg.get("config_version")
+        info["formula_version"] = FORMULA_VERSION
+        info["primary_formula"] = "S=0.60*K+0.30*M+0.10*E; R_i=100*(0.35K_i+0.35M_i+0.30P_i)"
+    except Exception as e:
+        info["config_version"] = f"invalid: {e}"
     return jsonify(info)
+
+
+# ═══════════════════════════════════════════════════════════
+# Versioned explainable API (spec section 20)
+# ═══════════════════════════════════════════════════════════
+def _v1_validate_weights(body):
+    w = (body or {}).get("weights")
+    if w is None:
+        return None
+    if not isinstance(w, dict):
+        raise ValueError("weights must be an object {keyword, semantic, experience}")
+    out = {}
+    for k in ("keyword", "semantic", "experience"):
+        if k in w:
+            v = float(w[k])
+            if not 0.0 <= v <= 1.0:
+                raise ValueError(f"weight {k} must be in [0,1]")
+            out[k] = v
+    if abs(sum(out.values()) - 1.0) > 1e-6:
+        raise ValueError("weights must sum to 1.0")
+    return out
+
+
+def _v1_store_analysis(candidate_id, payload):
+    _ANALYSES[candidate_id] = payload
+    return candidate_id
+
+
+@app.route("/api/v1/health", methods=["GET"])
+def v1_health():
+    resp = health()
+    data = resp.get_json()
+    data["api_version"] = "v1"
+    try:
+        from services import job_matcher as _jm
+        data["embedding_dimension"] = (
+            int(_jm._embed_batch(["health check"]).shape[1])
+            if _jm.embed_status() else None)
+    except Exception:
+        data["embedding_dimension"] = None
+    return jsonify(data)
+
+
+@app.route("/api/v1/documents/resume", methods=["POST"])
+def v1_upload_resume():
+    """Upload + process a resume: extraction preview + evidence (no scoring)."""
+    try:
+        if "resume" not in request.files:
+            return jsonify({"error": "No resume file provided"}), 400
+        f = request.files["resume"]
+        if not f.filename or not allowed_file(f.filename):
+            return jsonify({"error": "File type not supported. Use PDF, DOCX, or TXT"}), 400
+        ext = secure_filename(f.filename).rsplit(".", 1)[1].lower()
+        path = os.path.join(UPLOAD_FOLDER, f"v1_{uuid.uuid4().hex}.{ext}")
+        f.save(path)
+        try:
+            from services.resume_parser import validate_upload
+            validate_upload(path, MAX_FILE_MB)
+            from services.resume_parser import parse_resume
+            parsed = parse_resume(path)
+            if parsed.get("word_count", 0) == 0:
+                return jsonify({"error": "No readable text extracted — file is empty or unreadable",
+                                "extraction_status": parsed.get("extraction_status"),
+                                "ocr_hint": parsed.get("ocr_hint", "")}), 422
+            from services.section_parser import parse_resume_sections
+            from services.skill_extractor import (extract_skills, extract_skills_with_categories,
+                                                  extract_experience_years, extract_education)
+            from services.resume_parser import clean_text
+            skills = extract_skills(parsed["clean_text"])
+            return jsonify({
+                "preview": parsed["raw_text"][:5000],
+                "word_count": parsed["word_count"],
+                "pages": len(parsed.get("pages", [])),
+                "extraction_status": parsed.get("extraction_status", "ok"),
+                "ocr_hint": parsed.get("ocr_hint", ""),
+                "sections": list(parse_resume_sections(parsed["raw_text"]).keys()),
+                "skills": skills,
+                "skills_by_category": extract_skills_with_categories(parsed["clean_text"]),
+                "experience_years": extract_experience_years(parsed["clean_text"]),
+                "education": extract_education(parsed["clean_text"]),
+                "email": parsed["email"], "phone": parsed["phone"], "name": parsed["name"],
+            })
+        finally:
+            try:
+                os.remove(path)
+            except Exception:
+                pass
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/v1/documents/jd", methods=["POST"])
+def v1_upload_jd():
+    """Upload/process a JD: structured requirements preview."""
+    try:
+        jd_text, jd_meta = _load_jd_from_request()
+        if not jd_text:
+            return jsonify({"error": "Provide jd_file or job_description"}), 400
+        from services.requirement_extractor import extract_requirements
+        reqs = extract_requirements(jd_text, jd_meta)
+        return jsonify({"jd_understanding": jd_meta, "requirements": reqs,
+                        "count": len(reqs)})
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/v1/analyses", methods=["POST"])
+def v1_analyze():
+    """Run a resume-JD comparison; returns candidate + full explainable report."""
+    try:
+        if "resume" not in request.files:
+            return jsonify({"error": "No resume file provided"}), 400
+        f = request.files["resume"]
+        if not f.filename or not allowed_file(f.filename):
+            return jsonify({"error": "File type not supported. Use PDF, DOCX, or TXT"}), 400
+        weights_override = _v1_validate_weights(request.form.to_dict() and
+                                                (request.get_json(silent=True) or {}))
+        # weights may arrive as form field "weights" (JSON string) or JSON body
+        if weights_override is None and request.form.get("weights"):
+            import json as _json
+            try:
+                weights_override = _v1_validate_weights(
+                    {"weights": _json.loads(request.form.get("weights"))})
+            except ValueError as ve:
+                return jsonify({"error": str(ve)}), 400
+        job_description, jd_meta = _load_jd_from_request()
+        if not job_description:
+            return jsonify({"error": "Provide job_description or jd_file"}), 400
+        try:
+            required_experience = int(request.form.get("required_experience", "0") or "0")
+        except ValueError:
+            required_experience = 0
+        if required_experience == 0 and jd_meta.get("min_experience"):
+            required_experience = jd_meta["min_experience"]
+        required_skills = [s.strip() for s in
+                           request.form.get("required_skills", "").split(",") if s.strip()]
+        ext = secure_filename(f.filename).rsplit(".", 1)[1].lower()
+        path = os.path.join(UPLOAD_FOLDER, f"v1_{uuid.uuid4().hex}.{ext}")
+        f.save(path)
+        try:
+            result = _analyze_single_file(path, required_skills, required_experience,
+                                          job_description,
+                                          _build_scoring_weights(
+                                              *_resolve_required_skills(required_skills,
+                                                                        job_description)[:1],
+                                              jd_meta),
+                                          None, jd_meta.get("must_have_skills") or [],
+                                          jd_meta)
+        finally:
+            pass  # keep stored resume file for audit trail (same as legacy)
+        if result.get("explainable", {}).get("status") == "error":
+            pass  # legacy score still valid; error recorded in payload
+        from database.db_handler import save_candidate
+        # re-run scoring with weight override for recalculation correctness
+        if weights_override:
+            extd = _extract_resume(path)
+            result = _score_extracted(
+                extd, result["required_skills"], required_experience, job_description,
+                _build_scoring_weights(result["required_skills"], jd_meta),
+                None, jd_meta.get("must_have_skills") or [], jd_meta,
+                weights_override)
+            from services.job_matcher import fingerprint_candidate
+            result["fingerprint"] = fingerprint_candidate(
+                result["name"], result["email"], result["phone"])
+            from services.job_matcher import (generate_strengths, generate_weaknesses,
+                                              generate_resume_summary)
+            result["strengths"] = generate_strengths(result, result["required_skills"])
+            result["weaknesses"] = generate_weaknesses(result, result["required_skills"])
+            result["summary"] = generate_resume_summary(result)
+        candidate_id = save_candidate(result)
+        result["id"] = candidate_id
+        analysis_id = _v1_store_analysis(candidate_id, {
+            "candidate": {k: v for k, v in result.items() if k != "explainable"},
+            "explainable": result.get("explainable", {}),
+            "jd_meta": {k: v for k, v in jd_meta.items() if k != "clean_text"},
+            "job_description": job_description[:10000],
+            "required_experience": required_experience,
+            "resume_file": os.path.basename(path),
+        })
+        return jsonify({"analysis_id": analysis_id, "candidate": result,
+                        "report": (result.get("explainable") or {}).get("report")}), 201
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/v1/analyses/<analysis_id>", methods=["GET"])
+def v1_get_analysis(analysis_id):
+    a = _ANALYSES.get(analysis_id)
+    if not a:
+        # fall back to persisted candidate record
+        try:
+            from database.db_handler import get_candidate_by_id
+            c = get_candidate_by_id(analysis_id)
+            if not c:
+                return jsonify({"error": "Analysis not found"}), 404
+            return jsonify({"analysis_id": analysis_id, "candidate": c,
+                            "report": (c.get("explainable") or {}).get("report")})
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+    return jsonify({"analysis_id": analysis_id, **a})
+
+
+@app.route("/api/v1/analyses/<analysis_id>/requirements", methods=["GET"])
+def v1_get_requirements(analysis_id):
+    a = _ANALYSES.get(analysis_id)
+    src = (a or {}).get("explainable") if a else None
+    if not src:
+        try:
+            from database.db_handler import get_candidate_by_id
+            c = get_candidate_by_id(analysis_id)
+            src = (c or {}).get("explainable")
+            if not src:
+                return jsonify({"error": "Analysis not found"}), 404
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+    return jsonify({"analysis_id": analysis_id,
+                    "requirements": src.get("requirement_scores", []),
+                    "aggregate": src.get("aggregate", {})})
+
+
+@app.route("/api/v1/analyses/<analysis_id>/report", methods=["GET"])
+def v1_get_report(analysis_id):
+    a = _ANALYSES.get(analysis_id)
+    src = (a or {}).get("explainable") if a else None
+    if not src:
+        try:
+            from database.db_handler import get_candidate_by_id
+            c = get_candidate_by_id(analysis_id)
+            src = (c or {}).get("explainable")
+            if not src:
+                return jsonify({"error": "Analysis not found"}), 404
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+    report = src.get("report", {})
+    resp = jsonify(report)
+    if request.args.get("format") == "json":
+        resp.headers["Content-Disposition"] = (
+            f"attachment; filename=screening-report-{analysis_id}.json")
+    return resp
+
+
+@app.route("/api/v1/analyses/<analysis_id>/recalculate", methods=["POST"])
+def v1_recalculate(analysis_id):
+    """Re-run the same documents with different overall weights."""
+    try:
+        body = request.get_json(silent=True) or {}
+        weights_override = _v1_validate_weights(body)
+        if not weights_override:
+            return jsonify({"error": "Provide weights {keyword, semantic, experience} summing to 1.0"}), 400
+        a = _ANALYSES.get(analysis_id)
+        if not a:
+            return jsonify({"error": "Analysis not found (recalculate needs the live session store)"}), 404
+        path = os.path.join(UPLOAD_FOLDER, a.get("resume_file", ""))
+        if not os.path.exists(path):
+            return jsonify({"error": "Stored resume file no longer available"}), 410
+        from services.requirement_extractor import extract_requirements
+        from services.evidence_extractor import extract_evidence
+        from services.scoring_engine import analyze as engine_analyze
+        from services.report_generator import build_report, analyze_gaps
+        from services.eligibility_checker import check_eligibility
+        extd = _extract_resume(path)
+        jd_meta = a.get("jd_meta", {})
+        requirements = extract_requirements(a.get("job_description", ""), jd_meta)
+        evidence = extract_evidence(extd["parsed"], extd["skills_found"])
+        analysis = engine_analyze(requirements, extd["skills_found"], evidence,
+                                  extd["parsed"].get("clean_text", ""),
+                                  extd["experience_years"], a.get("required_experience", 0),
+                                  weights_override=weights_override)
+        if analysis.get("status") != "ok":
+            return jsonify({"error": analysis.get("reason")}), 422
+        gaps = analyze_gaps(analysis["requirements"])
+        eligibility = check_eligibility(requirements, evidence, extd["education"],
+                                        extd["experience_years"],
+                                        a.get("required_experience", 0), jd_meta)
+        report = build_report({"name": extd["parsed"].get("name"),
+                               "education": extd["education"],
+                               "experience_years": extd["experience_years"]},
+                              requirements, analysis["requirements"],
+                              analysis["aggregate"], eligibility, evidence,
+                              jd_meta, gaps)
+        a["explainable"] = {"requirement_scores": analysis["requirements"],
+                            "aggregate": analysis["aggregate"],
+                            "eligibility": eligibility, "gaps": gaps, "report": report,
+                            "config_version": analysis.get("config_version")}
+        return jsonify({"analysis_id": analysis_id, "aggregate": analysis["aggregate"],
+                        "requirements": analysis["requirements"], "report": report})
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
 
 
 # ── Analyze a single resume ───────────────────────────────────
@@ -347,7 +745,8 @@ def analyze_batch():
         for ext in extracted:
             try:
                 result = _score_extracted(ext, required_skills, required_experience,
-                                          job_description, skill_weights, idf, must_have)
+                                          job_description, skill_weights, idf, must_have,
+                                          jd_meta)
 
                 # Duplicate detection within batch + against DB fingerprints
                 fp = result.get("fingerprint")

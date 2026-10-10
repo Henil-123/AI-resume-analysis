@@ -477,11 +477,107 @@ function renderDetail(c) {
       <div class="summary-text">${esc(c.recommendation?.message || '—')}</div>
     </div>
 
+    ${explainSections(c)}
+
     <div class="detail-actions">
       <button class="d-action shortlist${status === 'shortlisted' ? ' on' : ''}" onclick="setStatus('${c.id}','shortlisted')">✓ Shortlist</button>
       <button class="d-action reject${status === 'rejected' ? ' on' : ''}" onclick="setStatus('${c.id}','rejected')">✕ Reject</button>
       <button class="d-action maybe${status === 'maybe' ? ' on' : ''}" onclick="setStatus('${c.id}','maybe')">? Maybe</button>
     </div>`;
+}
+
+// ── Explainable screening sections (additive; legacy contracts unchanged) ──
+function eligBadge(status) {
+  if (status === 'VERIFIED_ELIGIBLE') return '<span class="pill pill-green">Eligible</span>';
+  if (status === 'VERIFIED_INELIGIBLE') return '<span class="pill pill-red">Ineligible</span>';
+  return '<span class="pill pill-orange">Eligibility unknown</span>';
+}
+function reqStatusPill(s) {
+  const m = { matched: 'pill-green', partial: 'pill-orange', missing: 'pill-red', uncertain: 'pill-orange' };
+  return `<span class="pill ${m[s] || 'pill-orange'}">${esc(s || '—')}</span>`;
+}
+function explainSections(c) {
+  const x = c.explainable;
+  if (!x || x.status !== 'ok' && !x.aggregate) {
+    const why = x ? esc(x.reason || x.status) : 'no JD provided for this analysis';
+    return `<div class="detail-section"><div class="ds-title">Explainable Report</div>
+      <div class="summary-text">Requirement-level analysis unavailable (${why}). Scores above use the legacy precision engine.</div></div>`;
+  }
+  const rows = (x.requirement_scores || []).map(r => `<tr>
+    <td><b>${esc(r.name)}</b>${r.mandatory ? ' <span class="pill pill-red">must</span>' : ''}<br/><span class="req-src">${esc((r.resume_evidence || '').slice(0, 140))}</span></td>
+    <td style="text-align:center">${r.importance_weight}</td>
+    <td style="text-align:center">${r.keyword_match}</td>
+    <td style="text-align:center">${r.raw_cosine == null ? '—' : r.raw_cosine}</td>
+    <td style="text-align:center">${r.semantic_score}</td>
+    <td style="text-align:center">${r.evidence_strength}</td>
+    <td style="text-align:center"><b>${r.requirement_score}%</b></td>
+    <td>${reqStatusPill(r.status)}</td>
+  </tr>`).join('');
+  const crit = (x.eligibility?.criteria || []).map(k =>
+    `<div class="elig-row"><span>${esc(k.criterion)}</span> ${eligBadge(k.status)}</div>
+     <div class="req-src">${esc(k.detail || '')}</div>`).join('');
+  const gaps = (x.gaps || []).slice(0, 5).map(g =>
+    `<div class="elig-row"><span><b>${esc(g.requirement)}</b> — ${esc(g.reason || '').slice(0, 160)}</span></div>
+     <div class="req-src">Fix: ${esc(g.recommended_action || '').slice(0, 220)}</div>`).join('') || '<span style="font-size:12px">—</span>';
+  const a = x.aggregate || {};
+  return `
+    <div class="detail-section">
+      <div class="ds-title">How This Score Was Calculated</div>
+      <div class="summary-text">Primary <b>S = 0.60·K + 0.30·M + 0.10·E = ${a.overall_score ?? '—'}%</b>
+        (keyword ${a.keyword_coverage ?? '—'}% · semantic ${a.semantic_relevance ?? '—'}% · experience ${a.experience_fit ?? '—'}%).
+        Diagnostic requirement-weighted score: <b>${a.requirement_weighted_score ?? '—'}%</b>.
+        Each requirement: Rᵢ = 100·(0.35·Kᵢ + 0.35·Mᵢ + 0.30·Pᵢ). Config ${esc(x.config_version || '')}.</div>
+    </div>
+    <div class="detail-section">
+      <div class="ds-title">Eligibility ${eligBadge(x.eligibility?.overall)}</div>
+      ${crit || '<span style="font-size:12px">—</span>'}
+    </div>
+    <div class="detail-section">
+      <div class="ds-title">Requirement-by-Requirement Evidence</div>
+      <div class="req-table-wrap"><table class="req-table">
+        <thead><tr><th>Requirement + evidence</th><th title="1 low – 5 critical">Wt</th><th title="Keyword K">K</th><th title="Raw cosine">cos</th><th title="Semantic M">M</th><th title="Evidence P">P</th><th>Rᵢ</th><th>Status</th></tr></thead>
+        <tbody>${rows || '<tr><td colspan="8">—</td></tr>'}</tbody>
+      </table></div>
+    </div>
+    <div class="detail-section">
+      <div class="ds-title">Top Gaps + Actions</div>
+      ${gaps}
+    </div>
+    <div class="detail-section">
+      <div class="ds-title">Re-run With Different Weights</div>
+      <div class="recalc-row">
+        <label>K <input type="number" id="rw-k" value="0.6" min="0" max="1" step="0.05"/></label>
+        <label>M <input type="number" id="rw-m" value="0.3" min="0" max="1" step="0.05"/></label>
+        <label>E <input type="number" id="rw-e" value="0.1" min="0" max="1" step="0.05"/></label>
+        <button class="btn-sm" onclick="recalculate('${c.id}')">Recalculate</button>
+        <button class="btn-sm" onclick="downloadReport('${c.id}')">Report JSON</button>
+      </div>
+      <div class="req-src">Weights must sum to 1.0. Recalculation needs the live backend session that ran the analysis.</div>
+    </div>`;
+}
+async function recalculate(id) {
+  const k = parseFloat(document.getElementById('rw-k')?.value || '0.6');
+  const m = parseFloat(document.getElementById('rw-m')?.value || '0.3');
+  const e = parseFloat(document.getElementById('rw-e')?.value || '0.1');
+  try {
+    const r = await fetch(API + '/api/v1/analyses/' + id + '/recalculate', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ weights: { keyword: k, semantic: m, experience: e } })
+    });
+    const body = await r.json();
+    if (!r.ok) { toast(body.error || 'Recalculation failed.', 'error'); return; }
+    const c = allCands.find(x => x.id === id);
+    if (c && c.explainable) {
+      c.explainable.requirement_scores = body.requirements;
+      c.explainable.aggregate = body.aggregate;
+      c.explainable.report = body.report;
+      renderDetail(c);
+    }
+    toast(`Recalculated overall: ${body.aggregate.overall_score}%`, 'success');
+  } catch (err) { toast('Recalculation failed.', 'error'); }
+}
+function downloadReport(id) {
+  window.open(API + '/api/v1/analyses/' + id + '/report?format=json', '_blank');
 }
 
 function closeDetail() {

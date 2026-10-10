@@ -132,6 +132,42 @@ full guide. After redeploying Render, update the `destination` URL in
 
 ---
 
+## 📈 How Scoring Works (explainable-v2)
+
+Primary overall score: **S = 0.60·K + 0.30·M + 0.10·E**
+(keyword coverage · semantic relevance · experience fit), computed over
+per-requirement scores **Rᵢ = 100·(0.35·Kᵢ + 0.35·Mᵢ + 0.30·Pᵢ)**
+(keyword · semantic · evidence strength). Every requirement shows its
+evidence quote, section/page source, raw cosine + normalized score, and
+status (matched / partial / missing / uncertain). Eligibility
+(eligible / ineligible / unknown) is evaluated separately — unknown stays
+unknown, never a silent fail. Full methodology: `docs/scoring_methodology.md`;
+model card: `docs/model_card.md`; API: `docs/api_documentation.md`.
+
+Legacy precision signals (45/30/15/10 + must-have gate) still power the
+headline `final_score` so existing dashboards keep working; the explainable
+`S` score and requirement table ride along in every `/analyze` response.
+
+## 🧪 Testing
+
+```bash
+cd backend && ./venv/Scripts/python -m pytest tests -q
+# 30 tests: keyword, semantic, evidence, aggregation, security, end-to-end
+```
+
+## 📡 API (v1 explainable)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/v1/analyses` | Resume+JD comparison with full report |
+| GET | `/api/v1/analyses/:id` | Retrieve report |
+| GET | `/api/v1/analyses/:id/requirements` | Requirement-level matches |
+| GET | `/api/v1/analyses/:id/report` | Download report JSON |
+| POST | `/api/v1/analyses/:id/recalculate` | Re-run with different weights |
+| GET | `/api/v1/health` | Health + model readiness |
+
+---
+
 ## 📈 How Scoring Works (precision model)
 
 | Signal | Weight | Description |

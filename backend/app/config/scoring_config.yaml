@@ -1,0 +1,81 @@
+# Explainable scoring configuration (single source of truth).
+# All weights/thresholds are validated at startup; every analysis stores
+# `config_version` so results are reproducible.
+config_version: "2.0.0"
+
+embedding:
+  model_candidates:
+    - "BAAI/bge-small-en-v1.5"
+    - "sentence-transformers/all-MiniLM-L6-v2"
+  engine_env_var: "SEMANTIC_ENGINE"   # "tfidf" selects the light cosine engine
+  light_engine_name: "tfidf-cosine (light)"
+  max_passage_chars: 2000
+  cache_size: 4000
+
+keyword:
+  exact: 1.0        # direct canonical match (incl. alias-normalized)
+  alias_match: 1.0  # alias counts as explicit demonstration, not partial
+  fuzzy_skill: 0.7  # near-miss canonical skill (difflib >= threshold)
+  partial: 0.5      # related concept / raw-text typo recovery
+  missing: 0.0
+  fuzzy_threshold: 0.85
+  text_fuzzy_threshold: 0.80
+  word_boundary: true   # phrase matching, never naive substring
+
+semantic:
+  # transform: raw cosine in [-1, 1] -> normalized M in [0, 1]
+  # "clip01": M = max(0, raw). Both raw and normalized are reported.
+  transform: "clip01"
+  strong_threshold: 0.75
+  moderate_threshold: 0.50
+  weak_threshold: 0.25
+
+evidence:
+  demonstrated_implementation: 1.0  # concrete build/test/deploy outcome
+  specific_practical_use: 0.7       # meaningful use, limited depth
+  mentioned_only: 0.3               # skills-section mention, no depth
+  no_evidence: 0.0
+  planned_work_cap: 0.3             # "will do / planning" never exceeds this
+  negated_value: 0.0                # "no experience in X" scores zero
+
+requirement_level:
+  keyword_weight: 0.35
+  semantic_weight: 0.35
+  evidence_weight: 0.30
+  # R_i = 100 * (0.35*K_i + 0.35*M_i + 0.30*P_i)
+
+overall:
+  keyword_weight: 0.60
+  semantic_weight: 0.30
+  experience_weight: 0.10
+  # S = 0.60*K + 0.30*M + 0.10*E  (primary score)
+  # RequirementWeightedScore = sum(w_i*R_i)/sum(w_i) is reported as diagnostic.
+
+importance_scale:
+  1: "low priority"
+  2: "moderate-low"
+  3: "moderate"
+  4: "high"
+  5: "critical"
+must_boost: 2.0
+nice_factor: 0.7
+frequency_step: 0.25
+
+eligibility:
+  # Mandatory misses are reported as gaps; formal INELIGIBLE only when
+  # the JD states an explicit, verifiable bar AND the resume contradicts it.
+  unknown_by_default: true
+
+missing_data:
+  no_requirements: "insufficient-data"  # never divide by zero
+  no_model: "skip-semantic"             # redistribute per overall policy
+
+experience:
+  trainee_friendly: true  # don't demand professional years unless JD requires
+  no_requirement_with_experience: 100.0
+  no_requirement_without_experience: 60.0
+  no_evidence_with_requirement: 0.0
+
+security:
+  max_file_mb: 10
+  allowed_extensions: ["pdf", "docx", "doc", "txt"]

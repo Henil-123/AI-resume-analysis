@@ -18,6 +18,10 @@ R_i = 100 * (0.35*K_i + 0.35*M_i + 0.30*P_i)
 - **M_i (semantic)**: `M = max(0, cosine(u, v))` (`clip01` transform) where `u`
   is the requirement embedding and `v` the best resume-evidence embedding.
   Both raw cosine and normalized M are reported per requirement.
+  A requirement is compared **only against evidence passages that actually
+  mention that skill**. If the resume contains no such passage, `M_i = 0.0`
+  with `semantic_basis: "no-evidence"` — never a similarity borrowed from
+  unrelated sentences in the resume.
 - **P_i (evidence)**: 1.0 demonstrated implementation · 0.7 specific practical
   use · 0.3 mentioned only · 0.0 no evidence. Planned/aspirational work caps
   at 0.3; negated mentions score 0.0; duplicate passages never inflate
@@ -50,6 +54,40 @@ with a reason. Equivalent requirements are deduplicated before scoring.
 else `actual/required*100`. No JD bar: 100 if any experience found else 60.
 Trainee-friendly: professional years are never demanded unless the JD states
 them; academic/project work counts via evidence, not double-counted.
+
+Experience detection uses three signals: explicit "5+ years of experience",
+explicit durations attached to a role (including **months/weeks**, e.g.
+"Python Developer Intern (2 months)" = 0.17y), and date ranges
+("2022-Present", "2019 - 2023"). Date parsing tolerates punctuation-stripped
+text (`clean_text` turns "2022-Present" into "2022 present"). Only professional
+roles and internships count; personal/academic projects are reported as
+project evidence, never as professional tenure. Every result carries an
+`experience_detail` block with the signal used and a confidence level — a
+missing duration is reported as **not detected**, never as zero experience.
+
+## Authoritative score (single source of truth)
+
+`aggregate()` computes the score once. `final_score`, the `score_breakdown`,
+the requirement table, the API payload, the report and the Excel export all
+read those same stored values — no component recomputes it independently.
+The legacy 45/30/15/10 blend (with must-have gate) is still computed and
+exposed as `legacy_final_score` for comparison, but it is never headlined.
+
+Each result records `formula_version`, `config_version` and `formula_inputs`
+(`K`, `M`, `E`, weights, requirement count, total weight), plus per-requirement
+`formula_inputs` (`K`, `M`, `P` and the three weights), so every published
+number can be re-derived from the published inputs.
+
+## Mandatory vs inferred
+
+`mandatory` is true **only** when the JD explicitly requires the skill (it
+appears under a detected required/must-have section, or carries mandatory
+wording on its own line). `mandatory_explicit` records which. Every other
+requirement is a non-mandatory inferred priority, labelled with its reason.
+A JD with unrecognised headings therefore produces no mandatory requirements
+rather than making all of them mandatory (which previously turned unrelated
+technologies into must-haves). Inferred priorities never cause an eligibility
+failure.
 
 ## Eligibility (separate from score)
 

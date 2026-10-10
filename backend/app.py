@@ -71,6 +71,7 @@ def _run_explainable(parsed, skills_found, experience_years, education,
     if analysis.get("status") != "ok":
         raise ValueError(analysis.get("reason", "insufficient-data"))
     req_scores = analysis["requirements"]
+    exp_detail = (analysis.get("aggregate", {}).get("experience_detail") or {})
     eligibility = check_eligibility(requirements, evidence, education,
                                     experience_years, required_experience, jd_meta)
     gaps = analyze_gaps(req_scores)
@@ -89,6 +90,15 @@ def _run_explainable(parsed, skills_found, experience_years, education,
             "evidence_total": len(evidence), "requirement_scores": req_scores,
             "aggregate": analysis["aggregate"], "eligibility": eligibility,
             "gaps": gaps, "report": report,
+            # Authoritative headline: identical to aggregate.overall_score.
+            "overall_score": analysis["aggregate"].get("overall_score"),
+            "score_components": {
+                "keyword_coverage": analysis["aggregate"].get("keyword_coverage"),
+                "semantic_relevance": analysis["aggregate"].get("semantic_relevance"),
+                "experience_fit": analysis["aggregate"].get("experience_fit"),
+            },
+            "experience_detail": exp_detail,
+            "formula_version": analysis.get("formula_version"),
             "config_version": analysis.get("config_version")}
 
 
@@ -214,12 +224,11 @@ def _score_extracted(ext, required_skills, required_experience, job_description,
         parsed["clean_text"], job_description
     ) if job_description else 0.0
 
-    final_score = calculate_final_score(
+    legacy_final = calculate_final_score(
         keyword_score, semantic_score,
         experience_years, required_experience, education,
         must_have_missing=len(critical_missing)
     )
-    recommendation = generate_recommendation(final_score)
 
     skills_match_pct = calculate_skills_match_pct(matched, required_skills)
     exp_match_pct = calculate_experience_match_pct(experience_years, required_experience)
@@ -242,7 +251,9 @@ def _score_extracted(ext, required_skills, required_experience, job_description,
         "fuzzy_matches": weighted["fuzzy_matches"],
         "keyword_score": keyword_score,
         "semantic_score": semantic_score,
-        "final_score": final_score,
+        # legacy blend retained for comparison/audit only (never headlined)
+        "legacy_final_score": legacy_final,
+        "final_score": legacy_final,
         "score_breakdown": explain_score(
             keyword_score, semantic_score,
             experience_years, required_experience, education,
@@ -251,7 +262,7 @@ def _score_extracted(ext, required_skills, required_experience, job_description,
         "fingerprint": fingerprint_candidate(parsed["name"], parsed["email"], parsed["phone"]),
         "skills_match_pct": skills_match_pct,
         "exp_match_pct": exp_match_pct,
-        "recommendation": recommendation,
+        "recommendation": generate_recommendation(legacy_final),
         "word_count": parsed["word_count"],
         "resume_file": ext["resume_file"],
     }
@@ -274,6 +285,36 @@ def _score_extracted(ext, required_skills, required_experience, job_description,
     except Exception as e:
         result["explainable"] = {"status": "error",
                                  "reason": f"explainable engine failed: {e}"[:300]}
+
+    # ── Single authoritative score ────────────────────────────────
+    # The explainable engine owns the headline. The legacy 45/30/15/10 blend
+    # stays available as `legacy_final_score` for comparison only. Previously
+    # `final_score` came from the legacy blend while the report showed S, so
+    # the UI could display two different "overall" numbers for one analysis.
+    exp = result["explainable"]
+    if exp.get("aggregate", {}).get("status") == "ok":
+        result["final_score"] = exp["aggregate"]["overall_score"]
+        result["score_kind"] = exp["aggregate"].get("formula_version", "explainable-v2")
+        result["score_breakdown"] = {
+            "keyword_score": exp["aggregate"]["keyword_coverage"],
+            "semantic_score": exp["aggregate"]["semantic_relevance"],
+            "experience_score": exp["aggregate"]["experience_fit"],
+            "education_score": None,
+            "must_have_penalty": 0.0,
+            "requirement_weighted_score": exp["aggregate"]["requirement_weighted_score"],
+            "formula": exp["aggregate"]["formula"],
+            "formula_version": exp["aggregate"]["formula_version"],
+            "config_version": exp["aggregate"]["config_version"],
+            "weights": exp["aggregate"]["weights"],
+            "formula_inputs": exp["aggregate"]["formula_inputs"],
+        }
+        result["recommendation"] = generate_recommendation(result["final_score"])
+        result["strengths"] = generate_strengths(result, required_skills)
+        result["weaknesses"] = generate_weaknesses(result, required_skills)
+        result["summary"] = generate_resume_summary(result)
+        # Expose the same report object the report endpoint serves, so the
+        # headline, the UI and any export cannot disagree.
+        result["report"] = exp.get("report")
     return result
 
 

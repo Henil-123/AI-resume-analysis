@@ -154,11 +154,15 @@ def extract_name(text):
 
 
 def estimate_experience_from_dates(text):
-    """Estimate experience from year ranges like 2019-2023 / 2020-Present."""
+    """Estimate experience from year ranges like 2019-2023 / 2020-Present.
+
+    Tolerates text cleaning: `clean_text` strips punctuation, so "2022-Present"
+    may arrive as "2022 present". The separator is therefore optional.
+    """
     current_year = 2026
     max_span = 0
-    # e.g. 2019 - 2023, 2019–Present, 2019 to 2022
-    pattern = r'(19|20)\d{2}\s*(?:-|–|—|to)\s*((?:19|20)\d{2}|present|current|now)'
+    # e.g. 2019 - 2023, 2019–Present, 2019 to 2022, 2022 Present (cleaned)
+    pattern = r'(19|20)\d{2}\s*(?:-|–|—|to)?\s*((?:19|20)\d{2}|present|current|now)\b'
     for m in re.finditer(pattern, text, re.IGNORECASE):
         start = int(m.group(0)[:4])
         end_raw = m.group(2).lower()

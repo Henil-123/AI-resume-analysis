@@ -101,42 +101,84 @@ def extract_skills_with_categories(text):
     return categorized
 
 
-def extract_experience_years(text):
+def extract_experience_years(text, detail=False):
     """
-    Estimate years of experience from resume text.
-    Combines explicit mentions ('5 years experience') with
-    date-range inference ('2019-2023', '2020-Present').
-    Returns the max of both signals.
+    Estimate professional experience from resume text.
+
+    Signals:
+      - explicit '5+ years of experience'
+      - explicit durations attached to a role, including MONTHS/WEEKS
+        (e.g. 'Python Developer Intern (2 months)', '6-month internship')
+      - date ranges ('2019-2023', '2020-Present', 'Jan 2022 - Mar 2023')
+
+    Only PROFESSIONAL experience counts (employment, internship, contract).
+    Personal/academic projects are detected separately and never inflate
+    professional experience.
+
+    Returns years as a float. With detail=True returns (years, detail_dict).
     """
     import re
-    patterns = [
-        r'(\d+)\+?\s*years?\s*of\s*experience',
-        r'(\d+)\+?\s*years?\s*experience',
-        r'experience\s*of\s*(\d+)\+?\s*years?',
-        r'(\d+)\+?\s*yrs?\s*experience',
-        r'over\s*(\d+)\s*years?',
-    ]
-    max_years = 0
-    for pattern in patterns:
-        matches = re.findall(pattern, text.lower())
-        for m in matches:
+    low = (text or "").lower()
+
+    years = 0.0
+    for pattern in (r'(\d+)\+?\s*years?\s*of\s*experience',
+                    r'(\d+)\+?\s*years?\s*experience',
+                    r'experience\s*of\s*(\d+)\+?\s*years?',
+                    r'(\d+)\+?\s*yrs?\s*experience',
+                    r'over\s*(\d+)\s*years?'):
+        for m in re.findall(pattern, low):
             val = int(m)
-            if val < 50:  # sanity check
-                max_years = max(max_years, val)
-    # Date-range fallback
+            if val < 50:
+                years = max(years, float(val))
+
+    roles = []
+    # "2 months" / "6-month" / "1 year" attached to an employment/internship role
+    role_ctx = r'[^.\n]{0,80}?(?:intern(?:ship)?|developer|engineer|analyst|manager|consultant|freelance|contract|full[\s-]?time|part[\s-]?time)'
+    for m in re.finditer(role_ctx, low):
+        window = low[m.start(): m.start() + 160]
+        mo = re.search(r'(\d+)\s*(?:-|\s)?\s*(month|week|day|year)s?', window)
+        if not mo:
+            continue
+        n, unit = int(mo.group(1)), mo.group(2)
+        if unit == "month":
+            yrs = n / 12.0
+        elif unit == "week":
+            yrs = n / 52.0
+        elif unit == "day":
+            yrs = n / 365.0
+        else:
+            yrs = float(n)
+        if 0 < yrs < 50:
+            roles.append({"role": m.group(0).strip()[:60], "years": round(yrs, 3),
+                          "stated": mo.group(0).strip()})
+            years = max(years, yrs)
+
+    # Date-range inference (professional contexts only)
+    date_years = 0.0
     try:
-        from services.resume_parser import estimate_experience_from_dates
-    except ImportError:
         try:
-            from resume_parser import estimate_experience_from_dates
+            from services.resume_parser import estimate_experience_from_dates
         except ImportError:
-            estimate_experience_from_dates = None
-    if estimate_experience_from_dates:
-        try:
-            max_years = max(max_years, estimate_experience_from_dates(text))
-        except Exception:
-            pass
-    return max_years
+            from resume_parser import estimate_experience_from_dates
+        date_years = float(estimate_experience_from_dates(text) or 0)
+    except Exception:
+        date_years = 0.0
+    years = max(years, date_years)
+
+    if not detail:
+        return round(years, 2)
+
+    return round(years, 2), {
+        "years": round(years, 2),
+        "explicit_mention_years": round(max(
+            [float(int(m)) for p in (r'(\d+)\+?\s*years?\s*of\s*experience',
+                                     r'(\d+)\+?\s*years?\s*experience')
+             for m in re.findall(p, low) if int(m) < 50] or [0.0]), 2),
+        "role_durations": roles,
+        "date_range_years": round(date_years, 2),
+        "professional": True,
+        "note": "Professional roles and internships only; personal projects excluded.",
+    }
 
 
 def extract_education(text):

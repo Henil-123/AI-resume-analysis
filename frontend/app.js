@@ -444,7 +444,7 @@ function renderDetail(c) {
         <div class="mb-label"><span class="mb-name">Experience match</span><span class="mb-val" style="color:${expPct >= 60 ? 'var(--green)' : 'var(--amber)'}">${expPct}%</span></div>
         <div class="mb-track"><div class="mb-fill" style="width:${expPct}%;background:${expPct >= 60 ? 'var(--green)' : 'var(--amber)'}"></div></div>
       </div>
-      ${c.score_breakdown ? `<div class="score-note">Keyword ${c.score_breakdown.keyword_score}% · Semantic ${c.score_breakdown.semantic_score}% · Experience ${c.score_breakdown.experience_score}% · Education ${c.score_breakdown.education_score}%${c.score_breakdown.must_have_penalty ? ` · <span class="dup">−${c.score_breakdown.must_have_penalty} must-have gap</span>` : ''}${c.skills_auto_extracted ? ' · <b>skills auto-extracted from JD</b>' : ''}${c.is_duplicate ? ' · <span class="dup">possible duplicate</span>' : ''}</div>` : ''}
+      ${c.score_breakdown ? `<div class="score-note">Keyword ${c.score_breakdown.keyword_score}% · Semantic ${c.score_breakdown.semantic_score}% · Experience ${c.score_breakdown.experience_score}%${c.score_breakdown.education_score != null ? ` · Education ${c.score_breakdown.education_score}%` : ''}${c.score_breakdown.formula ? `<br/><b>${esc(c.score_breakdown.formula)}</b> → ${c.final_score}%` : ''}${c.score_breakdown.formula_version ? ` <span class="req-src">(${esc(c.score_breakdown.formula_version)} · config ${esc(c.score_breakdown.config_version || '')})</span>` : ''}${c.skills_auto_extracted ? ' · <b>skills auto-extracted from JD</b>' : ''}${c.is_duplicate ? ' · <span class="dup">possible duplicate</span>' : ''}</div>` : ''}
     </div>
 
     <div class="detail-section">
@@ -504,11 +504,11 @@ function explainSections(c) {
       <div class="summary-text">Requirement-level analysis unavailable (${why}). Scores above use the legacy precision engine.</div></div>`;
   }
   const rows = (x.requirement_scores || []).map(r => `<tr>
-    <td><b>${esc(r.name)}</b>${r.mandatory ? ' <span class="pill pill-red">must</span>' : ''}<br/><span class="req-src">${esc((r.resume_evidence || '').slice(0, 140))}</span></td>
+    <td><b>${esc(r.name)}</b>${r.mandatory ? ` <span class="pill pill-red" title="${esc(r.mandatory_source || '')}">must</span>` : (r.weight_inferred ? ' <span class="pill pill-orange" title="' + esc(r.weight_reason || '') + '">inferred</span>' : '')}<br/><span class="req-src">${esc((r.resume_evidence || 'no evidence found').slice(0, 140))}${r.evidence_section ? ' — ' + esc(r.evidence_section) : ''}</span></td>
     <td style="text-align:center">${r.importance_weight}</td>
     <td style="text-align:center">${r.keyword_match}</td>
     <td style="text-align:center">${r.raw_cosine == null ? '—' : r.raw_cosine}</td>
-    <td style="text-align:center">${r.semantic_score}</td>
+    <td style="text-align:center">${r.semantic_score}${r.semantic_basis === 'no-evidence' ? '<br/><span class="req-src">no evidence</span>' : ''}</td>
     <td style="text-align:center">${r.evidence_strength}</td>
     <td style="text-align:center"><b>${r.requirement_score}%</b></td>
     <td>${reqStatusPill(r.status)}</td>
@@ -520,13 +520,17 @@ function explainSections(c) {
     `<div class="elig-row"><span><b>${esc(g.requirement)}</b> — ${esc(g.reason || '').slice(0, 160)}</span></div>
      <div class="req-src">Fix: ${esc(g.recommended_action || '').slice(0, 220)}</div>`).join('') || '<span style="font-size:12px">—</span>';
   const a = x.aggregate || {};
+  const fi = a.formula_inputs || {};
+  const ed = a.experience_detail || {};
   return `
     <div class="detail-section">
       <div class="ds-title">How This Score Was Calculated</div>
-      <div class="summary-text">Primary <b>S = 0.60·K + 0.30·M + 0.10·E = ${a.overall_score ?? '—'}%</b>
+      <div class="summary-text">Primary <b>${esc(a.formula || 'S=0.60*K+0.30*M+0.10*E')} = ${a.overall_score ?? '—'}%</b>
         (keyword ${a.keyword_coverage ?? '—'}% · semantic ${a.semantic_relevance ?? '—'}% · experience ${a.experience_fit ?? '—'}%).
+        ${fi.requirement_count ? `Computed from ${fi.requirement_count} requirements (total weight ${fi.total_weight}). ` : ''}
         Diagnostic requirement-weighted score: <b>${a.requirement_weighted_score ?? '—'}%</b>.
-        Each requirement: Rᵢ = 100·(0.35·Kᵢ + 0.35·Mᵢ + 0.30·Pᵢ). Config ${esc(x.config_version || '')}.</div>
+        ${ed.note ? `<br/><span class="req-src">Experience: ${esc(ed.actual_years ?? 0)}y detected vs ${esc(ed.required_years ?? 0)}y required — ${esc(ed.note)}</span>` : ''}
+        ${esc(a.formula_version || '')} · config ${esc(a.config_version || '')}.</div>
     </div>
     <div class="detail-section">
       <div class="ds-title">Eligibility ${eligBadge(x.eligibility?.overall)}</div>
@@ -842,8 +846,15 @@ function exportExcel(shortlistedOnly = false) {
     { h: 'Education',       get: c => c.education || '' },
     { h: 'Exp (yrs)',       get: c => c.experience_years ?? '' },
     { h: 'Score %',         get: c => c.final_score ?? '' },
-    { h: 'Keyword %',       get: c => c.keyword_score ?? (c.score_breakdown ? c.score_breakdown.keyword_score : '') ?? '' },
-    { h: 'Semantic %',      get: c => c.semantic_score ?? (c.score_breakdown ? c.score_breakdown.semantic_score : '') ?? '' },
+    // Breakdown columns come from the stored score_breakdown so the sheet
+    // always matches the headline (K·0.6 + M·0.3 + E·0.1 = Score %).
+    { h: 'Keyword K %',     get: c => c.score_breakdown?.keyword_score ?? c.keyword_score ?? '' },
+    { h: 'Semantic M %',    get: c => c.score_breakdown?.semantic_score ?? c.semantic_score ?? '' },
+    { h: 'Experience E %',  get: c => c.score_breakdown?.experience_score ?? '' },
+    { h: 'Req-weighted %',  get: c => c.score_breakdown?.requirement_weighted_score ?? '' },
+    { h: 'Eligibility',     get: c => c.explainable?.eligibility?.overall ?? '' },
+    { h: 'Formula',         get: c => c.score_breakdown?.formula || '' },
+    { h: 'Config ver',      get: c => c.score_breakdown?.config_version || '' },
     { h: 'Matched skills',  get: c => (c.matched_skills || []).join('; ') },
     { h: 'Missing skills',  get: c => (c.missing_skills || []).join('; ') },
     { h: 'Verdict',         get: c => (c.recommendation || {}).label || '' },

@@ -43,7 +43,16 @@ def _mandatory_markers(line):
 
 
 def extract_requirements(jd_text, jd_meta=None):
-    """Convert JD text into deduplicated structured requirements."""
+    """Convert JD text into deduplicated structured requirements.
+
+    Mandatory is ONLY set when the JD explicitly says so (required/must-have
+    section or an explicit marker on the skill's own line). Everything else is
+    an inferred priority. Previously, a JD with no recognised "required" or
+    "preferred" header marked EVERY extracted skill mandatory — which is how
+    unrelated technologies (e.g. ASP.NET on a Java Full Stack role) became
+    must-haves, and why eligibility could fail a candidate for a skill the
+    source never required.
+    """
     jd_text = jd_text or ""
     meta = jd_meta or {}
     sections = parse_jd_sections(jd_text)
@@ -51,42 +60,56 @@ def extract_requirements(jd_text, jd_meta=None):
         counts = extract_required_skills_from_jd(jd_text, with_counts=True)
     except TypeError:
         counts = {s: 1 for s in extract_required_skills_from_jd(jd_text)}
-    req_section_skills = set(extract_required_skills_from_jd(sections.get("required", "")) or [])
-    pref_section_skills = set(extract_required_skills_from_jd(sections.get("preferred", "")) or [])
+    req_section_skills = {normalize_skill(s) for s in
+                          (extract_required_skills_from_jd(sections.get("required", "")) or [])}
+    pref_section_skills = {normalize_skill(s) for s in
+                           (extract_required_skills_from_jd(sections.get("preferred", "")) or [])}
+
+    lines = jd_text.split("\n")
+
+    def first_line_for(canon):
+        """The JD line that actually mentions this skill (mandatory marker source)."""
+        for line in lines:
+            low = line.lower()
+            if canon in low or canon.replace("_", " ") in low or canon.replace(" ", "_") in low:
+                return line.strip()[:300]
+        return ""
 
     requirements = []
     for i, (skill, count) in enumerate(
             sorted(counts.items(), key=lambda kv: (-kv[1], kv[0])), start=1):
         canon = normalize_skill(skill)
-        # Mandatory reasoning: explicit marker > required-section placement >
-        # no-sections fallback (all core) > frequency/role-title emphasis.
-        in_must = canon in {normalize_skill(s) for s in req_section_skills}
-        in_pref = canon in {normalize_skill(s) for s in pref_section_skills}
-        explicit_must = in_must
-        if not sections.get("required") and not sections.get("preferred"):
-            mandatory, source = True, "inferred: no JD sections, all skills treated as core"
-            weight, w_reason = 4, "inferred: core skill, no section signal"
-        elif explicit_must:
-            mandatory, source = True, "explicit: listed under required/must-have section"
-            weight, w_reason = 5, "explicit: required section"
-        elif in_pref:
-            mandatory, source = False, "explicit: listed under preferred/nice-to-have section"
-            weight, w_reason = 2, "explicit: preferred section"
-        elif count >= 3:
-            mandatory, source = False, f"inferred: mentioned {count}x (emphasis), not marked mandatory"
-            weight, w_reason = 4, f"inferred: high frequency ({count} mentions)"
-        elif count == 2:
-            mandatory, source = False, "inferred: repeated mention, non-mandatory"
-            weight, w_reason = 3, "inferred: moderate emphasis"
+        in_must = canon in req_section_skills
+        in_pref = canon in pref_section_skills
+        source_text = first_line_for(canon)
+        explicit_marker, _pref_marker = _mandatory_markers(source_text)
+
+        if in_pref:
+            # Preferred never overrides an explicit required marker.
+            if in_must or explicit_marker:
+                mandatory = True
+                source = "explicit: listed under required section or with mandatory wording"
+                weight, w_reason = 5, "explicit: required"
+            else:
+                mandatory = False
+                source = "explicit: listed under preferred/nice-to-have section"
+                weight, w_reason = 2, "explicit: preferred section"
+        elif in_must or explicit_marker:
+            mandatory = True
+            source = "explicit: listed under required/must-have section" if in_must else \
+                     "explicit: mandatory wording on the requirement line"
+            weight, w_reason = 5, "explicit: required"
         else:
-            mandatory, source = False, "inferred: single mention, importance unclear"
-            weight, w_reason = 3, "inferred: default moderate"
-        # source sentence: first line containing the skill
-        source_text, source_page = "", 1
-        for line in jd_text.split("\n"):
-            if canon in line.lower():
-                source_text = line.strip()[:300]
-                break
+            # NOT mandatory. Weight is an inferred priority only.
+            mandatory = False
+            source = "inferred: no explicit mandatory statement in JD"
+            if count >= 3:
+                weight, w_reason = 4, f"inferred: high frequency ({count} mentions)"
+            elif count == 2:
+                weight, w_reason = 3, "inferred: moderate emphasis (2 mentions)"
+            else:
+                weight, w_reason = 3, "inferred: default moderate priority"
+
         requirements.append({
             "requirement_id": f"req_{i:03d}",
             "name": canon.replace("_", " ").title() if "_" in canon else canon.title(),
@@ -95,13 +118,14 @@ def extract_requirements(jd_text, jd_meta=None):
             "importance_weight": weight,
             "mandatory": mandatory,
             "mandatory_source": source,
+            "mandatory_explicit": bool(source.startswith("explicit")),
             "requirement_type": "technical_skill",
             "canonical_skill": canon,
             "aliases": [],
             "expected_evidence": ["project", "work_experience"],
-            "source_page": source_page,
+            "source_page": 1,
             "source_text": source_text,
-            "weight_inferred": not explicit_must and not in_pref,
+            "weight_inferred": not (mandatory and source.startswith("explicit")) and not in_pref,
             "weight_reason": w_reason,
             "mention_count": count,
         })

@@ -86,45 +86,51 @@ def transform_cosine(raw, cfg=None):
 
 
 def score_semantic(requirement, evidence_records, resume_text, cfg=None):
-    """M for one requirement: best cosine over its evidence passages.
+    """M for one requirement: best cosine over ITS OWN evidence passages.
 
-    Returns dict(raw_cosine, normalized, matched_passage, model...).
-    Never fabricates: on model failure returns normalized 0.0 + error note.
+    Compares the requirement ONLY against evidence records that actually
+    mention the same canonical skill. The previous implementation fell back to
+    12 arbitrary resume chunks when a skill had no evidence, which produced a
+    non-zero M for absent skills (inflating/deflating the aggregate M against
+    the requirement table) and made M non-reproducible between runs.
+
+    If no supporting passage exists, M = 0.0 with basis "no-evidence". A raw
+    cosine is never invented from unrelated text.
     """
     cfg = cfg or get_config()
     desc = requirement.get("description", "") or requirement.get("canonical_skill", "")
+    model_name = _jm.get_embed_model_name()
+    if not model_name:
+        return {"raw_cosine": 0.0, "normalized": 0.0, "matched_passage": "",
+                "model": None, "basis": "model-unavailable",
+                "error": "embedding model unavailable", "embedding_dim": None}
+
+    skill = requirement.get("canonical_skill")
     cands = [e for e in (evidence_records or [])
-             if e.get("canonical_skill") == requirement.get("canonical_skill")
+             if e.get("canonical_skill") == skill
              and not e.get("is_negated") and not e.get("is_duplicate")]
-    if not cands:
-        # fall back to skill-filtered resume chunks so M stays measurable
-        cands = [{"original_text": c} for c in
-                 _jm.chunk_text(resume_text or "", max_chunks=12)]
+    batch = [(e.get("original_text") or "")[:2000] for e in cands[:16]]
+    batch = [b for b in batch if b.strip()]
+    if not batch:
+        # Honest zero: this skill has no supporting passage in the resume.
+        return {"raw_cosine": 0.0, "normalized": 0.0, "matched_passage": "",
+                "model": model_name, "basis": "no-evidence",
+                "embedding_dim": None}
+
     try:
-        model_name = _jm.get_embed_model_name()
-        if not model_name:
-            return {"raw_cosine": 0.0, "normalized": 0.0, "matched_passage": "",
-                    "model": None, "error": "embedding model unavailable",
-                    "embedding_dim": None}
         q = _jm._embed_batch([desc[:2000]])
-        import numpy as _np
-        best_raw, best_txt = -1.0, ""
-        batch = [ (e.get("original_text", "") or "")[:2000] for e in cands[:16]]
-        if not any(batch):
-            return {"raw_cosine": 0.0, "normalized": 0.0, "matched_passage": "",
-                    "model": model_name, "error": "empty evidence",
-                    "embedding_dim": int(q.shape[1])}
         mat = _jm._embed_batch(batch)
         sims = (mat @ q.T).ravel()
-        j = int(_np.argmax(sims))
-        best_raw, best_txt = float(sims[j]), batch[j]
+        j = int(sims.argmax())
+        best_raw = float(sims[j])
         norm, tname = transform_cosine(best_raw, cfg)
         return {"raw_cosine": round(best_raw, 4), "normalized": norm,
-                "transform": tname, "matched_passage": best_txt[:500],
+                "transform": tname, "matched_passage": batch[j][:500],
+                "basis": "skill-evidence", "candidates_scored": len(batch),
                 "model": model_name, "embedding_dim": int(q.shape[1])}
     except Exception as e:
         return {"raw_cosine": 0.0, "normalized": 0.0, "matched_passage": "",
-                "model": getattr(_jm, "_EMBED_MODEL_NAME", None),
+                "model": model_name, "basis": "inference-error",
                 "error": str(e)[:200], "embedding_dim": None}
 
 
@@ -179,23 +185,67 @@ def score_requirement(requirement, resume_skills, evidence_records, resume_text,
     return {
         "requirement_id": requirement.get("requirement_id"),
         "name": requirement.get("name"),
+        "category": requirement.get("category"),
+        "canonical_skill": requirement.get("canonical_skill"),
         "importance_weight": requirement.get("importance_weight", 3),
         "mandatory": requirement.get("mandatory", False),
+        "mandatory_source": requirement.get("mandatory_source", ""),
+        "weight_inferred": requirement.get("weight_inferred", False),
         "keyword_match": k, "keyword_note": k_why,
-        "raw_cosine": sem.get("raw_cosine"), "semantic_score": m,
-        "semantic_model": sem.get("model"), "semantic_error": sem.get("error"),
+        "raw_cosine": sem.get("raw_cosine"),
+        "semantic_score": m,
+        "semantic_basis": sem.get("basis"),
+        "semantic_transform": sem.get("transform"),
+        "semantic_model": sem.get("model"),
+        "semantic_error": sem.get("error"),
         "evidence_strength": p, "evidence_note": p_why,
         "requirement_score": r, "status": status,
+        # Exact inputs so R_i can be recomputed by any consumer.
+        "formula_inputs": {"K": k, "M": m, "P": p,
+                           "w_keyword": wk, "w_semantic": wm, "w_evidence": wp},
         "resume_evidence": (best_ev or {}).get("original_text", "") or sem.get("matched_passage", ""),
         "evidence_section": (best_ev or {}).get("section", ""),
+        "evidence_type": (best_ev or {}).get("evidence_type"),
         "evidence_page": (best_ev or {}).get("page_number"),
         "source_text": requirement.get("source_text", ""),
         "recommended_action": "",
     }
 
 
-def aggregate(requirement_scores, experience_score, cfg=None):
-    """Overall hybrid S (primary) + requirement-weighted (diagnostic)."""
+def _experience_fit(actual_years, required_years, cfg=None):
+    """Experience-fit score + its inputs (E) and the reasoning behind it.
+
+    Trainee/internship policies are honoured: an internship or student project
+    is real experience, not zero. Confidence is reported so the UI can
+    distinguish "no experience" from "experience not detected".
+    """
+    cfg = cfg or get_config()
+    exp_cfg = cfg.get("experience", {}) or {}
+    score = _jm.calculate_experience_score(actual_years or 0, required_years or 0)
+    detected = bool(actual_years)
+    return float(score), {
+        "actual_years": actual_years,
+        "required_years": required_years,
+        "score": float(score),
+        "detected": detected,
+        "confidence": "high" if actual_years and actual_years >= 1 else
+                      ("low" if actual_years else "none"),
+        "trainee_friendly": bool(exp_cfg.get("trainee_friendly", True)),
+        "note": ("Explicit duration/date evidence found in resume."
+                 if detected else
+                 "No professional-experience duration detected in the resume "
+                 "(missing data is not proof of zero experience)."),
+    }
+
+
+def aggregate(requirement_scores, experience_score, cfg=None,
+              experience_detail=None):
+    """Overall hybrid S (primary) + requirement-weighted (diagnostic).
+
+    This is the SINGLE authoritative aggregation. Every number returned here
+    is computed once, from the same per-requirement rows that the report,
+    API and frontend render — no consumer recomputes it.
+    """
     cfg = cfg or get_config()
     ov = cfg.get("overall", {})
     if not requirement_scores:
@@ -204,12 +254,15 @@ def aggregate(requirement_scores, experience_score, cfg=None):
     tot_w = sum(r.get("importance_weight", 1) for r in requirement_scores) or 0
     if tot_w <= 0:
         return {"status": "insufficient-data", "reason": "zero total requirement weight"}
+    wk, wm, we = (ov.get("keyword_weight", .6), ov.get("semantic_weight", .3),
+                  ov.get("experience_weight", .1))
     K = 100 * sum(r["importance_weight"] * r["keyword_match"] for r in requirement_scores) / tot_w
     M = 100 * sum(r["importance_weight"] * r["semantic_score"] for r in requirement_scores) / tot_w
     E = float(experience_score)
-    S = ov.get("keyword_weight", .6) * K + ov.get("semantic_weight", .3) * M + ov.get("experience_weight", .1) * E
+    # Blend unrounded, round once at the end so the published value always
+    # matches what the documented formula yields from the published inputs.
+    S = wk * K + wm * M + we * E
     req_w = sum(r["importance_weight"] * r["requirement_score"] for r in requirement_scores) / tot_w
-    # Unweighted diagnostic: plain skill coverage.
     matched = sum(1 for r in requirement_scores if r["keyword_match"] >= 1.0)
     return {
         "status": "ok",
@@ -219,12 +272,22 @@ def aggregate(requirement_scores, experience_score, cfg=None):
         "overall_score": round(S, 1),
         "requirement_weighted_score": round(req_w, 1),
         "unweighted_skill_coverage": round(100 * matched / len(requirement_scores), 1),
-        "formula": "S=0.60*K+0.30*M+0.10*E; R_i=100*(0.35K_i+0.35M_i+0.30P_i)",
+        "formula": "S=%.2f*K+%.2f*M+%.2f*E; R_i=100*(%.2fK_i+%.2fM_i+%.2fP_i)"
+                   % (wk, wm, we,
+                      cfg.get("requirement_level", {}).get("keyword_weight", .35),
+                      cfg.get("requirement_level", {}).get("semantic_weight", .35),
+                      cfg.get("requirement_level", {}).get("evidence_weight", .30)),
         "formula_version": FORMULA_VERSION,
         "config_version": cfg.get("config_version"),
-        "weights": {"keyword": ov.get("keyword_weight", .6),
-                    "semantic": ov.get("semantic_weight", .3),
-                    "experience": ov.get("experience_weight", .1)},
+        "weights": {"keyword": wk, "semantic": wm, "experience": we},
+        # Exact formula inputs, so any reader can re-derive overall_score.
+        "formula_inputs": {
+            "K": round(K, 1), "M": round(M, 1), "E": round(E, 1),
+            "w_keyword": wk, "w_semantic": wm, "w_experience": we,
+            "requirement_count": len(requirement_scores),
+            "total_weight": tot_w,
+        },
+        "experience_detail": experience_detail or {},
     }
 
 
@@ -253,8 +316,9 @@ def analyze(requirements, resume_skills, evidence_records, resume_text,
     t0 = time.time()
     req_scores = [score_requirement(r, resume_skills, evidence_records, resume_text,
                                     fuzzy_hits, cfg) for r in (requirements or [])]
-    exp_score = _jm.calculate_experience_score(experience_years or 0, required_experience or 0)
-    agg = aggregate(req_scores, exp_score, cfg)
+    exp_score, exp_detail = _experience_fit(experience_years or 0,
+                                            required_experience or 0, cfg)
+    agg = aggregate(req_scores, exp_score, cfg, experience_detail=exp_detail)
     if agg.get("status") != "ok":
         return {"status": agg["status"], "reason": agg.get("reason"),
                 "requirements": req_scores, "config_version": cfg.get("config_version")}

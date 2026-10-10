@@ -58,9 +58,20 @@ def check_eligibility(requirements, evidence_records, resume_education,
                                         f"unless the JD marks it mandatory.")})
 
     # Mandatory skills: missing == skill gap; formal failure only when the JD
-    # explicitly marks it mandatory AND no evidence exists at all.
+    # EXPLICITLY marks it mandatory AND no evidence exists at all.
+    # Inferred priorities (communication, monitoring, DevOps, Bootstrap, CI/CD)
+    # never create a formal eligibility failure.
     for r in requirements or []:
-        if not r.get("mandatory"):
+        if not r.get("mandatory") or not r.get("mandatory_explicit", False):
+            if r.get("mandatory") and not r.get("mandatory_explicit", False):
+                criteria.append({
+                    "criterion": f"Inferred priority: {r.get('name')}",
+                    "status": "UNKNOWN",
+                    "detail": "Not explicitly mandatory in the JD; absence is a skill gap, "
+                              "not an eligibility failure.",
+                })
+                if overall == "VERIFIED_ELIGIBLE":
+                    overall = "UNKNOWN"
             continue
         ev = [e for e in (evidence_records or [])
               if e.get("canonical_skill") == r.get("canonical_skill")

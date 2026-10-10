@@ -14,9 +14,17 @@ services:
         sync: false
       - key: DB_NAME
         value: resume_analyzer
-      - key: JWT_SECRET
-        generateValue: true
-      - key: GROQ_API_KEY
+      - key: DATABASE_URL
         sync: false
+      - key: CORS_ORIGINS
+        sync: false
+      - key: FRONTEND_ORIGIN
+        sync: false
+      - key: REVIEW_API_TOKEN
+        generateValue: true
+      - key: MAX_FILE_MB
+        value: 10
+      - key: RETENTION_DAYS
+        value: 90
     healthCheckPath: /health
     plan: free

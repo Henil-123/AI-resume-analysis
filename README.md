@@ -125,10 +125,11 @@ accuracy with `-e SEMANTIC_ENGINE=bert`.
 ## 🚀 Hosted Deployment (Render + Vercel)
 
 One backend on Render, one frontend on Vercel — see `DEPLOY.md` for the
-full guide. After redeploying Render, update the `destination` URL in
-`vercel.json` + `frontend/vercel.json` to your new
-`https://<service>.onrender.com/:path*`, and verify
-`GET /health` reports `"spacy_model": "en_core_web_sm"`.
+full guide, and `docs/deployment_verification.md` for the 13-step live
+checklist (do not claim success until it is run against the live URLs).
+Production requires `DATABASE_URL` (PostgreSQL), `CORS_ORIGINS`, and
+`REVIEW_API_TOKEN`; SQLite is single-instance only. `GET /ready` reports
+config + store readiness without triggering model downloads.
 
 ---
 
@@ -151,9 +152,27 @@ headline `final_score` so existing dashboards keep working; the explainable
 ## 🧪 Testing
 
 ```bash
-cd backend && ./venv/Scripts/python -m pytest tests -q
-# 30 tests: keyword, semantic, evidence, aggregation, security, end-to-end
+cd backend && ./venv/Scripts/python -m pytest tests -q -p no:randomly
+# Full suite (scoring, evidence, persistence, review security, upload
+# security, PDF/JSON consistency, semantic eval, end-to-end)
 ```
+
+```bash
+cd backend && python -m eval.evaluate --engine tfidf   # or --engine bert
+# Versioned semantic evaluation (docs/evaluation.md holds measured results)
+```
+
+```bash
+cd backend && python manage_db.py upgrade   # apply schema migrations
+```
+
+## 🗄 Persistent storage
+
+v1 analyses live in a relational store — SQLite file locally
+(`data/analyses.db`), PostgreSQL via `DATABASE_URL` in production — with an
+append-only review audit trail. Records survive restarts and are shared
+between instances on the same database. See `docs/database.md` (schema,
+migrations, retention) and `backend/.env.example` for all variables.
 
 ## 📡 API (v1 explainable)
 
@@ -162,9 +181,23 @@ cd backend && ./venv/Scripts/python -m pytest tests -q
 | POST | `/api/v1/analyses` | Resume+JD comparison with full report |
 | GET | `/api/v1/analyses/:id` | Retrieve report |
 | GET | `/api/v1/analyses/:id/requirements` | Requirement-level matches |
-| GET | `/api/v1/analyses/:id/report` | Download report JSON |
+| PATCH | `/api/v1/analyses/:id/requirements` | Manual review (bearer token); re-scores |
+| GET | `/api/v1/analyses/:id/reviews` | Append-only review audit trail |
+| GET | `/api/v1/analyses/:id/report` | Download report JSON (`?format=json`) or PDF (`?format=pdf`) |
 | POST | `/api/v1/analyses/:id/recalculate` | Re-run with different weights |
+| DELETE | `/api/v1/analyses/:id` | Delete analysis + resume file (bearer token) |
 | GET | `/api/v1/health` | Health + model readiness |
+| GET | `/ready` | Readiness: config + store checks |
+
+Review example:
+
+```bash
+curl -X PATCH $API/api/v1/analyses/<id>/requirements \
+  -H "Authorization: Bearer $REVIEW_API_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"exclude": ["asp.net"], "weights": {"java": 5},
+       "expected_version": 1, "reason": "no .NET curriculum for this role"}'
+```
 
 ---
 
@@ -184,6 +217,17 @@ Empty or unreadable resume files are rejected with a per-file error instead of s
 Score labels: **Strong Match** (80%+) · **Good Match** (60-79%) · **Partial** (40-59%) · **Weak** (<40%)
 
 ---
+
+## ⚠️ Known limitations
+
+- Semantic thresholds are defaults, not calibrated (eval: `docs/evaluation.md`).
+  The TF-IDF fallback fails human band ordering — every report it produces
+  says so via `semantic_engine_warning`.
+- The review token is shared/internal; per-user ownership is future work.
+- Rate limiting is per-process; add edge limiting in production.
+- Live Render/Vercel verification is a manual checklist
+  (`docs/deployment_verification.md`), not yet executed from CI here.
+- Remaining risks: `docs/security.md`.
 
 ## 🗺 Roadmap
 

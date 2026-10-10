@@ -20,6 +20,26 @@ def _calibration_summary():
     return summary
 
 
+def _engine_warning(aggregate):
+    """Honest fallback disclosure: the light engine is lexical, not semantic.
+
+    TF-IDF cosine is never labelled equivalent to transformer similarity. When
+    the active engine is the light fallback, the report says what it is and
+    what it cannot do, citing the measured calibration ordering.
+    """
+    meta = (aggregate or {}).get("semantic_model_meta") or {}
+    engine = (meta.get("engine") or "")
+    if engine == "tfidf":
+        return ("Lexical TF-IDF fallback is active (model "
+                f"'{meta.get('model')}', dim {meta.get('dimension')}). Its cosine "
+                "measures word overlap, not transformer semantic similarity; "
+                "seed-set evaluation shows it does not reliably separate "
+                "related from unrelated passages. Semantic scores from this "
+                "engine are a weak signal — keyword and evidence signals carry "
+                "the decision.")
+    return ""
+
+
 def analyze_gaps(requirement_scores):
     """Per-requirement gap records for low/uncertain scores."""
     gaps = []
@@ -168,6 +188,9 @@ def build_report(candidate, requirements, requirement_scores, aggregate,
             # Calibration status is reported honestly: the shipped seed set is
             # small and hand-written, so thresholds remain defaults.
             "semantic_calibration": _calibration_summary(),
+            # Fallback disclosure: TF-IDF is never presented as equivalent
+            # to transformer similarity (empty when the transformer is active).
+            "semantic_engine_warning": _engine_warning(aggregate),
             "thresholds": {"matched": 70, "partial": 40},
             "extraction_status": extraction_status,
             "evidence_count": len(evidence_records or []),

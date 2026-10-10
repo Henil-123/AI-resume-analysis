@@ -25,9 +25,25 @@ def _isolated_store():
     yield db_handler.LOCAL_DB_PATH
 
 
+@pytest.fixture(scope="session", autouse=True)
+def _isolated_analysis_store(tmp_path_factory):
+    """Point the persistent analysis store at a throwaway SQLite file."""
+    import app as appmod
+    tmpdir = tmp_path_factory.mktemp("analysis_store")
+    appmod._rebind_store(f"sqlite:///{tmpdir}/analyses.db")
+    appmod._ANALYSES.clear()
+    yield
+    appmod._ANALYSES.clear()
+
+
 @pytest.fixture(autouse=True)
 def _clear_store(_isolated_store):
     """Start each test from an empty candidate store."""
     from database import db_handler
     db_handler._save_local([])
+    try:
+        from rate_limit import clear as _clear_limits
+        _clear_limits()
+    except Exception:
+        pass
     yield

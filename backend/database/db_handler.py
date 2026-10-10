@@ -69,8 +69,8 @@ def _save_local(records):
 # ── Public API ────────────────────────────────────────────────
 
 def save_candidate(data: dict) -> str:
-    """Save a candidate record. Returns the generated ID."""
-    candidate_id = str(uuid.uuid4())[:8]
+    """Save a candidate record. Returns the generated ID (uuid4 hex)."""
+    candidate_id = uuid.uuid4().hex
     record = {
         "id": candidate_id,
         "created_at": datetime.utcnow().isoformat(),

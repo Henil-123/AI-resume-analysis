@@ -299,6 +299,50 @@ def _experience_fit(actual_years, required_years, cfg=None, profile=None):
     }
 
 
+def _validate_components(requirement_scores, experience_score):
+    """Reject non-finite, missing or out-of-range components before blending.
+
+    Units are explicit percentages in [0, 100]. A NaN/None/inf anywhere would
+    otherwise poison S silently, so the pipeline fails loudly instead.
+    """
+    import math
+    if not requirement_scores:
+        return  # aggregate() reports insufficient-data below
+    # Only keys aggregate() actually consumes are validated; rows built by
+    # older callers may omit the rest.
+    for i, r in enumerate(requirement_scores):
+        name = r.get("name", f"#{i}")
+        for key in ("keyword_match", "semantic_score",
+                    "importance_weight", "requirement_score"):
+            v = r.get(key)
+            if v is None or isinstance(v, bool):
+                raise ValueError(
+                    f"requirement '{name}': missing {key}; cannot aggregate")
+            try:
+                fv = float(v)
+            except (TypeError, ValueError):
+                raise ValueError(
+                    f"requirement '{name}': {key}={v!r} is not a number")
+            if not math.isfinite(fv):
+                raise ValueError(
+                    f"requirement '{name}': {key}={v!r} is not finite")
+            if key != "importance_weight" and not 0.0 <= fv <= 100.0:
+                raise ValueError(
+                    f"requirement '{name}': {key}={fv} outside [0, 100]")
+            if key == "importance_weight" and not math.isfinite(fv):
+                raise ValueError(
+                    f"requirement '{name}': importance_weight={v!r} not finite")
+    try:
+        e = float(experience_score)
+    except (TypeError, ValueError):
+        raise ValueError(
+            f"experience_score={experience_score!r} is not a number")
+    if not math.isfinite(e):
+        raise ValueError(f"experience_score={experience_score!r} is not finite")
+    if not 0.0 <= e <= 100.0:
+        raise ValueError(f"experience_score={e} outside [0, 100]")
+
+
 def aggregate(requirement_scores, experience_score, cfg=None,
               experience_detail=None):
     """Overall hybrid S (primary) + requirement-weighted (diagnostic).
@@ -308,6 +352,7 @@ def aggregate(requirement_scores, experience_score, cfg=None,
     API and frontend render — no consumer recomputes it.
     """
     cfg = cfg or get_config()
+    _validate_components(requirement_scores, experience_score)
     ov = cfg.get("overall", {})
     if not requirement_scores:
         return {"status": "insufficient-data",
@@ -395,6 +440,16 @@ def analyze(requirements, resume_skills, evidence_records, resume_text,
                 "requirements": req_scores, "config_version": cfg.get("config_version")}
     for r in req_scores:
         r["recommended_action"] = ""  # filled by report_generator gaps
+    # Aggregate-level embedding provenance so the report audit and the
+    # fallback disclosure read one value, not per-row inference.
+    for r in req_scores:
+        if r.get("semantic_model_meta"):
+            agg["semantic_model"] = r.get("semantic_model")
+            agg["semantic_model_meta"] = r.get("semantic_model_meta")
+            break
+    else:
+        agg["semantic_model"] = req_scores[0].get("semantic_model") if req_scores else None
+        agg["semantic_model_meta"] = None
     return {"status": "ok", "requirements": req_scores, "aggregate": agg,
             "experience_score": exp_score, "compute_ms": int((time.time() - t0) * 1000),
             "formula_version": FORMULA_VERSION, "config_version": cfg.get("config_version")}

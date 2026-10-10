@@ -1,0 +1,366 @@
+{
+ "dataset_version": "1.0.0",
+ "notes": "Synthetic, hand-written evaluation cases. No real candidate data. Labels: match = passage demonstrates the required capability; related = topically related but a DIFFERENT, non-equivalent technology; unrelated = no meaningful relation. requirement_kind: explicit = stated in a typical JD; inferred = reasonable extension; irrelevant = not a genuine requirement.",
+ "cases": [
+  {
+   "evidence_span": "Deployed the billing service to a Kubernetes cluster and wrote Helm charts",
+   "id": "seed-01",
+   "label": "match",
+   "mandatory": true,
+   "notes": "Original seed set, retained verbatim for continuity.",
+   "passage": "Deployed the billing service to a Kubernetes cluster and wrote Helm charts for rolling deployments across three environments.",
+   "requirement": "Orchestrate container workloads with Kubernetes and manage deployments",
+   "requirement_kind": "explicit"
+  },
+  {
+   "evidence_span": "",
+   "id": "seed-02",
+   "label": "related",
+   "mandatory": true,
+   "notes": "Original seed set.",
+   "passage": "Designed REST endpoints in Spring Boot that talk to a MySQL database.",
+   "requirement": "Orchestrate container workloads with Kubernetes and manage deployments",
+   "requirement_kind": "explicit"
+  },
+  {
+   "evidence_span": "",
+   "id": "seed-03",
+   "label": "unrelated",
+   "mandatory": true,
+   "notes": "Original seed set.",
+   "passage": "Managed a grocery inventory spreadsheet and reconciled monthly stock counts.",
+   "requirement": "Orchestrate container workloads with Kubernetes and manage deployments",
+   "requirement_kind": "explicit"
+  },
+  {
+   "evidence_span": "Built a React dashboard with reusable components and CSS modules",
+   "id": "seed-04",
+   "label": "match",
+   "mandatory": true,
+   "notes": "Original seed set.",
+   "passage": "Built a React dashboard with reusable components and CSS modules for the checkout flow.",
+   "requirement": "Build responsive user interfaces with React and component-based design",
+   "requirement_kind": "explicit"
+  },
+  {
+   "evidence_span": "",
+   "id": "seed-05",
+   "label": "related",
+   "mandatory": true,
+   "notes": "Original seed set.",
+   "passage": "Created server-side Jinja templates and CSS for an internal reporting page.",
+   "requirement": "Build responsive user interfaces with React and component-based design",
+   "requirement_kind": "explicit"
+  },
+  {
+   "evidence_span": "",
+   "id": "seed-06",
+   "label": "unrelated",
+   "mandatory": true,
+   "notes": "Original seed set.",
+   "passage": "Wrote unit tests for the payroll tax calculation module in Python.",
+   "requirement": "Build responsive user interfaces with React and component-based design",
+   "requirement_kind": "explicit"
+  },
+  {
+   "evidence_span": "wrote complex SQL JOIN queries for monthly revenue reporting",
+   "id": "seed-07",
+   "label": "match",
+   "mandatory": true,
+   "notes": "Original seed set.",
+   "passage": "Designed normalized schemas and wrote complex SQL JOIN queries for monthly revenue reporting.",
+   "requirement": "Write SQL queries and design relational schemas for reporting",
+   "requirement_kind": "explicit"
+  },
+  {
+   "evidence_span": "",
+   "id": "seed-08",
+   "label": "related",
+   "mandatory": true,
+   "notes": "Original seed set.",
+   "passage": "Stored application state in a Redis cache to reduce database round trips.",
+   "requirement": "Write SQL queries and design relational schemas for reporting",
+   "requirement_kind": "explicit"
+  },
+  {
+   "evidence_span": "",
+   "id": "seed-09",
+   "label": "unrelated",
+   "mandatory": true,
+   "notes": "Original seed set.",
+   "passage": "Coordinated a team sprint and presented the roadmap to stakeholders.",
+   "requirement": "Write SQL queries and design relational schemas for reporting",
+   "requirement_kind": "explicit"
+  },
+  {
+   "evidence_span": "Added JUnit and Mockito integration tests",
+   "id": "seed-10",
+   "label": "match",
+   "mandatory": true,
+   "notes": "Original seed set.",
+   "passage": "Added JUnit and Mockito integration tests covering the payment service endpoints, raising coverage to 85%.",
+   "requirement": "Write automated unit and integration tests for backend services",
+   "requirement_kind": "explicit"
+  },
+  {
+   "evidence_span": "",
+   "id": "seed-11",
+   "label": "related",
+   "mandatory": true,
+   "notes": "Original seed set.",
+   "passage": "Performed manual exploratory testing of the checkout flow across browsers.",
+   "requirement": "Write automated unit and integration tests for backend services",
+   "requirement_kind": "explicit"
+  },
+  {
+   "evidence_span": "",
+   "id": "seed-12",
+   "label": "unrelated",
+   "mandatory": true,
+   "notes": "Original seed set.",
+   "passage": "Maintained the company wiki and onboarded two new engineering interns.",
+   "requirement": "Write automated unit and integration tests for backend services",
+   "requirement_kind": "explicit"
+  },
+  {
+   "evidence_span": "built booking microservices in Java 17 with Spring Boot",
+   "id": "v1-13",
+   "label": "match",
+   "mandatory": true,
+   "notes": "Direct technology demonstration.",
+   "passage": "As a backend intern I built booking microservices in Java 17 with Spring Boot, exposing versioned REST endpoints.",
+   "requirement": "Develop backend services in Java with the Spring Boot framework",
+   "requirement_kind": "explicit"
+  },
+  {
+   "evidence_span": "",
+   "id": "v1-14",
+   "label": "related",
+   "mandatory": true,
+   "notes": "C# is a different, non-equivalent backend stack.",
+   "passage": "Maintained a payroll backend written in C# on ASP.NET with SQL Server stored procedures.",
+   "requirement": "Develop backend services in Java with the Spring Boot framework",
+   "requirement_kind": "explicit"
+  },
+  {
+   "evidence_span": "",
+   "id": "v1-15",
+   "label": "unrelated",
+   "mandatory": true,
+   "notes": "No backend content at all.",
+   "passage": "Organised the annual college cultural festival, managing a team of forty volunteers.",
+   "requirement": "Develop backend services in Java with the Spring Boot framework",
+   "requirement_kind": "explicit"
+  },
+  {
+   "evidence_span": "consuming REST APIs with fetch and async state handling",
+   "id": "v1-16",
+   "label": "match",
+   "mandatory": false,
+   "notes": "TypeScript requirement demonstrated in a frontend context.",
+   "passage": "Implemented the student dashboard in TypeScript, consuming REST APIs with fetch and async state handling.",
+   "requirement": "Write type-safe frontend code in TypeScript",
+   "requirement_kind": "explicit"
+  },
+  {
+   "evidence_span": "",
+   "id": "v1-17",
+   "label": "related",
+   "mandatory": false,
+   "notes": "JavaScript without types is related but not equivalent to TypeScript.",
+   "passage": "Wrote vanilla JavaScript form validation and DOM helpers for a marketing site.",
+   "requirement": "Write type-safe frontend code in TypeScript",
+   "requirement_kind": "explicit"
+  },
+  {
+   "evidence_span": "",
+   "id": "v1-18",
+   "label": "unrelated",
+   "mandatory": false,
+   "notes": "",
+   "passage": "Configured office printers and resolved VPN tickets for new joiners.",
+   "requirement": "Write type-safe frontend code in TypeScript",
+   "requirement_kind": "explicit"
+  },
+  {
+   "evidence_span": "documented every endpoint with OpenAPI and return validation errors",
+   "id": "v1-19",
+   "label": "match",
+   "mandatory": true,
+   "notes": "REST API design demonstrated, not just used.",
+   "passage": "Designed versioned REST APIs for the library system, documented every endpoint with OpenAPI and return validation errors.",
+   "requirement": "Design and consume RESTful APIs with clear contracts",
+   "requirement_kind": "explicit"
+  },
+  {
+   "evidence_span": "",
+   "id": "v1-20",
+   "label": "related",
+   "mandatory": true,
+   "notes": "GraphQL is an API style but not REST.",
+   "passage": "Built a GraphQL gateway stitching three internal schemas for the mobile app.",
+   "requirement": "Design and consume RESTful APIs with clear contracts",
+   "requirement_kind": "explicit"
+  },
+  {
+   "evidence_span": "",
+   "id": "v1-21",
+   "label": "unrelated",
+   "mandatory": true,
+   "notes": "",
+   "passage": "Edited product demo videos and wrote release captions for social media.",
+   "requirement": "Design and consume RESTful APIs with clear contracts",
+   "requirement_kind": "explicit"
+  },
+  {
+   "evidence_span": "Dockerized the service and added a GitHub Actions pipeline",
+   "id": "v1-22",
+   "label": "match",
+   "mandatory": false,
+   "notes": "DevOps awareness demonstrated at trainee level.",
+   "passage": "Dockerized the service and added a GitHub Actions pipeline that runs tests on every pull request.",
+   "requirement": "Show awareness of DevOps practices such as CI pipelines and containers",
+   "requirement_kind": "inferred"
+  },
+  {
+   "evidence_span": "",
+   "id": "v1-23",
+   "label": "related",
+   "mandatory": false,
+   "notes": "Manual deployment is adjacent but not CI/container practice.",
+   "passage": "Deployed releases by copying build artifacts to the server over SFTP each Friday.",
+   "requirement": "Show awareness of DevOps practices such as CI pipelines and containers",
+   "requirement_kind": "inferred"
+  },
+  {
+   "evidence_span": "",
+   "id": "v1-24",
+   "label": "unrelated",
+   "mandatory": false,
+   "notes": "",
+   "passage": "Watered the office plants and restocked the pantry every Monday.",
+   "requirement": "Show awareness of DevOps practices such as CI pipelines and containers",
+   "requirement_kind": "inferred"
+  },
+  {
+   "evidence_span": "parameterized queries and hashed passwords with bcrypt",
+   "id": "v1-25",
+   "label": "match",
+   "mandatory": false,
+   "notes": "Security practice demonstrated in implementation.",
+   "passage": "Hardened the login flow with parameterized queries and hashed passwords with bcrypt, then reviewed session handling.",
+   "requirement": "Apply basic application security practices in code",
+   "requirement_kind": "inferred"
+  },
+  {
+   "evidence_span": "",
+   "id": "v1-26",
+   "label": "related",
+   "mandatory": false,
+   "notes": "Using a VPN is IT hygiene, not application security.",
+   "passage": "Always connects through the corporate VPN before pushing code to the repository.",
+   "requirement": "Apply basic application security practices in code",
+   "requirement_kind": "inferred"
+  },
+  {
+   "evidence_span": "",
+   "id": "v1-27",
+   "label": "unrelated",
+   "mandatory": false,
+   "notes": "",
+   "passage": "Won the inter-college chess tournament two years in a row.",
+   "requirement": "Apply basic application security practices in code",
+   "requirement_kind": "inferred"
+  },
+  {
+   "evidence_span": "explained trade-offs to the product manager and wrote the decision log",
+   "id": "v1-28",
+   "label": "match",
+   "mandatory": false,
+   "notes": "Behavioural competency demonstrated, not just claimed.",
+   "passage": "Led the standup rotation for a semester project, explained trade-offs to the product manager and wrote the decision log.",
+   "requirement": "Communicate technical decisions clearly within a team",
+   "requirement_kind": "explicit"
+  },
+  {
+   "evidence_span": "",
+   "id": "v1-29",
+   "label": "related",
+   "mandatory": false,
+   "notes": "Solo blogging is communication but not team collaboration.",
+   "passage": "Publishes a personal blog with weekly notes on programming languages.",
+   "requirement": "Communicate technical decisions clearly within a team",
+   "requirement_kind": "explicit"
+  },
+  {
+   "evidence_span": "",
+   "id": "v1-30",
+   "label": "unrelated",
+   "mandatory": false,
+   "notes": "",
+   "passage": "Replaced the keyboard switches on a personal mechanical keyboard.",
+   "requirement": "Communicate technical decisions clearly within a team",
+   "requirement_kind": "explicit"
+  },
+  {
+   "evidence_span": "",
+   "id": "v1-31",
+   "label": "unrelated",
+   "mandatory": false,
+   "notes": "ASP.NET must never be treated as evidence for a Java requirement.",
+   "passage": "Built an invoicing module in ASP.NET with C# and Entity Framework.",
+   "requirement": "Develop backend services in Java with the Spring Boot framework",
+   "requirement_kind": "irrelevant"
+  },
+  {
+   "evidence_span": "",
+   "id": "v1-32",
+   "label": "unrelated",
+   "mandatory": true,
+   "notes": "React evidence must not prove an unrelated backend skill.",
+   "passage": "Built a marketing landing page in React with animated CSS transitions.",
+   "requirement": "Develop backend services in Java with the Spring Boot framework",
+   "requirement_kind": "irrelevant"
+  },
+  {
+   "evidence_span": "",
+   "id": "v1-33",
+   "label": "related",
+   "mandatory": true,
+   "notes": "MySQL implements SQL; kept distinct from a direct SQL demonstration.",
+   "passage": "Queried a MySQL database from a Python script to export weekly signups.",
+   "requirement": "Write SQL queries and design relational schemas for reporting",
+   "requirement_kind": "explicit"
+  },
+  {
+   "evidence_span": "",
+   "id": "v1-34",
+   "label": "related",
+   "mandatory": false,
+   "notes": "Bootstrap is adjacent tooling, not React component skill.",
+   "passage": "Styled an admin page with Bootstrap classes and jQuery plugins.",
+   "requirement": "Build responsive user interfaces with React and component-based design",
+   "requirement_kind": "explicit"
+  },
+  {
+   "evidence_span": "from JavaScript to TypeScript, fixing forty type errors",
+   "id": "v1-35",
+   "label": "match",
+   "mandatory": false,
+   "notes": "Second TypeScript match, migration context.",
+   "passage": "Migrated 2000 lines of dashboard code from JavaScript to TypeScript, fixing forty type errors.",
+   "requirement": "Write type-safe frontend code in TypeScript",
+   "requirement_kind": "explicit"
+  },
+  {
+   "evidence_span": "rolled back the deploy and paged the on-call engineer",
+   "id": "v1-36",
+   "label": "match",
+   "mandatory": false,
+   "notes": "Monitoring/observability demonstrated through incident handling.",
+   "passage": "Watched error dashboards after each release, rolled back the deploy and paged the on-call engineer when rates spiked.",
+   "requirement": "Monitor services and respond to production signals",
+   "requirement_kind": "inferred"
+  }
+ ]
+}

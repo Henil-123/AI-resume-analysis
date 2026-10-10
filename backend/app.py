@@ -1,3 +1,4 @@
+import logging
 import os
 import uuid
 from flask import Flask, request, jsonify, send_from_directory, Response
@@ -7,13 +8,99 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# Versioned in-memory analysis store (backed by the same DB records;
-# analyses reference candidate ids so reports survive restarts via /candidates).
+import app_config as app_config
+from rate_limit import limit as rate_limit
+
+log = logging.getLogger("resume_analyzer")
+
+# Process-local read-through cache. The database (database/store.py) is
+# authoritative: every write goes to the store first, every read falls back
+# to it, so records survive restarts and are shared between instances.
 _ANALYSES = {}
+
+_STORE = None
+
+
+def _store():
+    """Return the persistent analysis store, initialising it on first use."""
+    global _STORE
+    if _STORE is None:
+        from database.migrations import upgrade_database
+        from database.store import AnalysisStore
+        engine, version = upgrade_database(app_config.DATABASE_URL)
+        _STORE = AnalysisStore(app_config.DATABASE_URL, engine=engine)
+        log.info("analysis store ready (schema v%s)", version)
+    return _STORE
+
+
+def _rebind_store(database_url):
+    """Test hook: point the store at a throwaway database."""
+    global _STORE
+    from database.migrations import upgrade_database
+    from database.store import AnalysisStore
+    engine, _ = upgrade_database(database_url)
+    _STORE = AnalysisStore(database_url, engine=engine)
+    return _STORE
+
+
+def _get_stored_analysis(analysis_id):
+    """Memory cache first, persistent store second. Returns payload or None."""
+    a = _ANALYSES.get(analysis_id)
+    if a:
+        return a
+    try:
+        payload = _store().get_analysis(analysis_id)
+    except Exception as e:
+        log.error("store read failed: %s", type(e).__name__)
+        return None
+    if payload is None:
+        # Legacy fallback: pre-store candidate records (db_handler).
+        try:
+            from database.db_handler import get_candidate_by_id
+            c = get_candidate_by_id(analysis_id)
+            if not c:
+                return None
+            payload = {
+                "candidate": {k: v for k, v in c.items() if k != "explainable"},
+                "explainable": c.get("explainable", {}),
+                "jd_meta": c.get("jd_meta", {}),
+                "job_description": c.get("job_description", ""),
+                "required_experience": c.get("required_experience", 0),
+                "resume_file": c.get("resume_file", ""),
+            }
+        except Exception:
+            return None
+    _ANALYSES[analysis_id] = payload
+    return payload
+
+
+def _is_prod():
+    return app_config.IS_PROD
+
+
+def _server_error(e, where):
+    """Log fully server-side; never leak stack traces to clients in prod."""
+    log.exception("%s failed", where)
+    if _is_prod():
+        return jsonify({"error": "Internal error. The incident was logged."}), 500
+    return jsonify({"error": str(e)}), 500
+
 
 FRONTEND_DIR = os.path.join(os.path.dirname(__file__), "..", "frontend")
 app = Flask(__name__, static_folder=FRONTEND_DIR, static_url_path="")
-CORS(app)
+if app_config.CORS_ORIGINS:
+    CORS(app, origins=app_config.CORS_ORIGINS)
+elif _is_prod():
+    # validate() refuses to start in prod without origins; belt and braces.
+    CORS(app, origins=[])
+else:
+    CORS(app)
+app.config["MAX_CONTENT_LENGTH"] = app_config.MAX_FILE_MB * 1024 * 1024
+
+
+@app.errorhandler(413)
+def _too_large(_e):
+    return jsonify({"error": f"Upload exceeds {app_config.MAX_FILE_MB}MB limit"}), 413
 
 
 @app.route("/")
@@ -24,7 +111,7 @@ UPLOAD_FOLDER = os.path.join(os.path.dirname(__file__), "..", "data", "resumes")
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 ALLOWED_EXTENSIONS = {"pdf", "docx", "doc", "txt"}
-MAX_FILE_MB = int(os.getenv("MAX_FILE_MB", "10"))
+MAX_FILE_MB = app_config.MAX_FILE_MB
 
 
 def allowed_file(filename):
@@ -34,6 +121,50 @@ def allowed_file(filename):
 def allowed_file(filename):
     name = secure_filename(filename or "")
     return "." in name and name.rsplit(".", 1)[1].lower() in ALLOWED_EXTENSIONS
+
+
+def _sniff_upload(path, ext):
+    """Verify magic bytes match the claimed extension (extension+MIME, neither
+    trusted alone). Raises ValueError on mismatch, encrypted PDFs, or empty
+    files. Encrypted PDFs are rejected with 422 guidance, not scored as zero.
+    """
+    with open(path, "rb") as f:
+        head = f.read(8)
+    if len(head) == 0:
+        raise ValueError("File is empty (0 bytes)")
+    if ext == "pdf":
+        if head[:5] != b"%PDF-":
+            raise ValueError("File claims .pdf but lacks a PDF header")
+        try:
+            import PyPDF2
+            with open(path, "rb") as f:
+                rd = PyPDF2.PdfReader(f)
+                if getattr(rd, "is_encrypted", False):
+                    raise ValueError("PDF is encrypted; upload an unprotected copy")
+        except ValueError:
+            raise
+        except Exception:
+            pass  # header check already passed; extraction handles the rest
+    elif ext in ("docx", "doc"):
+        if ext == "docx" and head[:2] != b"PK":
+            raise ValueError("File claims .docx but lacks a ZIP header")
+    elif ext == "txt":
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                f.read(65536)
+        except UnicodeDecodeError:
+            raise ValueError("Text file is not valid UTF-8")
+    return True
+
+
+def _check_request_size():
+    """Reject oversized bodies before parsing (Flask raises 413 inside the
+    view's try block otherwise, which generic handlers would mask as 500)."""
+    limit = app.config["MAX_CONTENT_LENGTH"]
+    if request.content_length and request.content_length > limit:
+        return jsonify(
+            {"error": f"Upload exceeds {app_config.MAX_FILE_MB}MB limit"}), 413
+    return None
 
 
 def _normalize(skill):
@@ -153,6 +284,11 @@ def _load_jd_from_request():
         if os.path.getsize(tmp) > MAX_FILE_MB * 1024 * 1024:
             os.remove(tmp)
             raise ValueError(f"JD file exceeds {MAX_FILE_MB}MB limit")
+        try:
+            _sniff_upload(tmp, ext)
+        except ValueError as ve:
+            os.remove(tmp)
+            raise
         from services.jd_parser import parse_jd_file
         meta = parse_jd_file(tmp)
         jd_text = meta.get("job_description", "")
@@ -441,8 +577,43 @@ def _v1_validate_weights(body):
 
 
 def _v1_store_analysis(candidate_id, payload):
-    _ANALYSES[candidate_id] = payload
-    return candidate_id
+    """Persist to the database (authoritative) and refresh the cache.
+
+    Returns the persistent analysis id. `candidate_id` links the legacy
+    candidate record; the store id is collision-resistant (uuid4 hex).
+    """
+    try:
+        analysis_id = _store().create_analysis(payload)
+    except Exception as e:
+        log.error("store create failed: %s", type(e).__name__)
+        if _is_prod():
+            raise
+        # Dev-only: keep serving from memory so local work continues, but
+        # say so loudly instead of pretending the record is durable.
+        log.warning("DEV ONLY: serving analysis from memory; record is NOT durable")
+        analysis_id = uuid.uuid4().hex
+    payload = dict(payload)
+    payload["id"] = analysis_id
+    _ANALYSES[analysis_id] = payload
+    return analysis_id
+
+
+def _review_authorized():
+    """Bearer token for review/destructive endpoints.
+
+    Returns (ok, error_response). When REVIEW_API_TOKEN is unset the
+    endpoints are dev/internal-only (production startup refuses this
+    unless REVIEW_OPEN is explicit).
+    """
+    token = app_config.REVIEW_API_TOKEN
+    if not token:
+        if _is_prod() and not app_config.REVIEW_OPEN:
+            return False, (jsonify({"error": "Review endpoint is disabled."}), 403)
+        return True, None
+    auth = (request.headers.get("Authorization") or "")
+    if auth == f"Bearer {token}":
+        return True, None
+    return False, (jsonify({"error": "Unauthorized: valid bearer token required."}), 401)
 
 
 @app.route("/api/v1/health", methods=["GET"])
@@ -463,6 +634,9 @@ def v1_health():
 @app.route("/api/v1/documents/resume", methods=["POST"])
 def v1_upload_resume():
     """Upload + process a resume: extraction preview + evidence (no scoring)."""
+    too_big = _check_request_size()
+    if too_big:
+        return too_big
     try:
         if "resume" not in request.files:
             return jsonify({"error": "No resume file provided"}), 400
@@ -473,6 +647,7 @@ def v1_upload_resume():
         path = os.path.join(UPLOAD_FOLDER, f"v1_{uuid.uuid4().hex}.{ext}")
         f.save(path)
         try:
+            _sniff_upload(path, ext)
             from services.resume_parser import validate_upload
             validate_upload(path, MAX_FILE_MB)
             from services.resume_parser import parse_resume
@@ -513,6 +688,9 @@ def v1_upload_resume():
 @app.route("/api/v1/documents/jd", methods=["POST"])
 def v1_upload_jd():
     """Upload/process a JD: structured requirements preview."""
+    too_big = _check_request_size()
+    if too_big:
+        return too_big
     try:
         jd_text, jd_meta = _load_jd_from_request()
         if not jd_text:
@@ -530,6 +708,9 @@ def v1_upload_jd():
 @app.route("/api/v1/analyses", methods=["POST"])
 def v1_analyze():
     """Run a resume-JD comparison; returns candidate + full explainable report."""
+    too_big = _check_request_size()
+    if too_big:
+        return too_big
     try:
         if "resume" not in request.files:
             return jsonify({"error": "No resume file provided"}), 400
@@ -560,6 +741,19 @@ def v1_analyze():
         ext = secure_filename(f.filename).rsplit(".", 1)[1].lower()
         path = os.path.join(UPLOAD_FOLDER, f"v1_{uuid.uuid4().hex}.{ext}")
         f.save(path)
+        try:
+            _sniff_upload(path, ext)
+            from services.resume_parser import validate_upload
+            validate_upload(path, MAX_FILE_MB)
+        except ValueError as ve:
+            try:
+                os.remove(path)
+            except Exception:
+                pass
+            msg = str(ve)
+            code = 422 if ("encrypted" in msg or "readable text" in msg
+                           or "header" in msg or "UTF-8" in msg) else 400
+            return jsonify({"error": msg}), code
         try:
             result = _analyze_single_file(path, required_skills, required_experience,
                                           job_description,
@@ -619,34 +813,93 @@ def v1_analyze():
 
 @app.route("/api/v1/analyses/<analysis_id>", methods=["GET"])
 def v1_get_analysis(analysis_id):
-    a = _ANALYSES.get(analysis_id)
+    if not _valid_analysis_id(analysis_id):
+        return jsonify({"error": "Invalid analysis id."}), 400
+    a = _get_stored_analysis(analysis_id)
     if not a:
-        # fall back to persisted candidate record
-        try:
-            from database.db_handler import get_candidate_by_id
-            c = get_candidate_by_id(analysis_id)
-            if not c:
-                return jsonify({"error": "Analysis not found"}), 404
-            return jsonify({"analysis_id": analysis_id, "candidate": c,
-                            "report": (c.get("explainable") or {}).get("report")})
-        except Exception as e:
-            return jsonify({"error": str(e)}), 500
+        return jsonify({"error": "Analysis not found"}), 404
     return jsonify({"analysis_id": analysis_id, **a})
+
+
+@app.route("/ready", methods=["GET"])
+def readiness():
+    """Readiness: config valid + store reachable. No model downloads."""
+    checks = {}
+    try:
+        app_config.validate()
+        checks["config"] = "ok"
+    except Exception as e:
+        checks["config"] = str(e)[:200]
+    try:
+        _store().ping()
+        checks["store"] = "ok"
+    except Exception as e:
+        checks["store"] = str(e)[:200]
+    from services import job_matcher as _jm
+    checks["embed_model"] = _jm.embed_status() or "not-loaded-yet"
+    ok = checks["config"] == "ok" and checks["store"] == "ok"
+    return jsonify({"ready": ok, **checks}), (200 if ok else 503)
+
+
+def _valid_analysis_id(analysis_id):
+    import re
+    # Charset-restricted (blocks traversal); unknown-but-wellformed ids map
+    # to 404, malformed ones to 400.
+    return bool(re.fullmatch(r"[A-Za-z0-9_-]{1,64}", analysis_id or ""))
+
+
+@app.route("/api/v1/analyses/<analysis_id>", methods=["DELETE"])
+@rate_limit(20)
+def v1_delete_analysis(analysis_id):
+    """Retention/deletion: remove the stored analysis and its resume file."""
+    if not _valid_analysis_id(analysis_id):
+        return jsonify({"error": "Invalid analysis id."}), 400
+    ok, err = _review_authorized()
+    if not ok:
+        return err
+    try:
+        resume_file = _store().delete_analysis(analysis_id)
+    except Exception as e:
+        return _server_error(e, "v1_delete_analysis")
+    if resume_file is None:
+        return jsonify({"error": "Analysis not found"}), 404
+    _ANALYSES.pop(analysis_id, None)
+    if resume_file:
+        try:
+            # Basename only: stored names are generated, never user paths.
+            os.remove(os.path.join(UPLOAD_FOLDER,
+                                   os.path.basename(resume_file)))
+        except Exception:
+            pass
+    try:
+        from database.db_handler import delete_candidate
+        delete_candidate(analysis_id)
+    except Exception:
+        pass
+    return jsonify({"message": "Analysis deleted", "analysis_id": analysis_id})
+
+
+@app.route("/api/v1/analyses/<analysis_id>/reviews", methods=["GET"])
+def v1_list_reviews(analysis_id):
+    """Append-only manual-review history for an analysis."""
+    if not _valid_analysis_id(analysis_id):
+        return jsonify({"error": "Invalid analysis id."}), 400
+    try:
+        events = _store().list_review_events(analysis_id)
+    except Exception as e:
+        return _server_error(e, "v1_list_reviews")
+    return jsonify({"analysis_id": analysis_id, "events": events,
+                    "count": len(events)})
 
 
 @app.route("/api/v1/analyses/<analysis_id>/requirements", methods=["GET"])
 def v1_get_requirements(analysis_id):
-    a = _ANALYSES.get(analysis_id)
+    if not _valid_analysis_id(analysis_id):
+        return jsonify({"error": "Invalid analysis id."}), 400
+    a = _get_stored_analysis(analysis_id)
     src = (a or {}).get("explainable") if a else None
     if not src:
-        try:
-            from database.db_handler import get_candidate_by_id
-            c = get_candidate_by_id(analysis_id)
-            src = (c or {}).get("explainable")
-            if not src:
-                return jsonify({"error": "Analysis not found"}), 404
-        except Exception as e:
-            return jsonify({"error": str(e)}), 500
+        return jsonify({"error": "Analysis not found"}), 404
     return jsonify({"analysis_id": analysis_id,
                     "requirements": src.get("requirement_scores", []),
                     "aggregate": src.get("aggregate", {})})
@@ -654,17 +907,12 @@ def v1_get_requirements(analysis_id):
 
 @app.route("/api/v1/analyses/<analysis_id>/report", methods=["GET"])
 def v1_get_report(analysis_id):
-    a = _ANALYSES.get(analysis_id)
+    if not _valid_analysis_id(analysis_id):
+        return jsonify({"error": "Invalid analysis id."}), 400
+    a = _get_stored_analysis(analysis_id)
     src = (a or {}).get("explainable") if a else None
     if not src:
-        try:
-            from database.db_handler import get_candidate_by_id
-            c = get_candidate_by_id(analysis_id)
-            src = (c or {}).get("explainable")
-            if not src:
-                return jsonify({"error": "Analysis not found"}), 404
-        except Exception as e:
-            return jsonify({"error": str(e)}), 500
+        return jsonify({"error": "Analysis not found"}), 404
     report = src.get("report", {})
     fmt = (request.args.get("format") or "json").lower()
     if fmt == "pdf":
@@ -684,30 +932,34 @@ def v1_get_report(analysis_id):
 
 
 @app.route("/api/v1/analyses/<analysis_id>/requirements", methods=["PATCH"])
+@rate_limit(30)
 def v1_review_requirements(analysis_id):
     """Manual review of extracted requirements, applied BEFORE final scoring.
 
     A reviewer can drop a requirement the parser invented, restore one it
     missed, or correct a weight. Every override is recorded on the requirement
-    (reviewed_by / review_reason) so a corrected score is still traceable, and
-    the analysis is then re-scored from the same source documents.
+    (reviewed_by / review_reason) AND as an append-only audit event, and the
+    analysis is then re-scored from the same source documents.
 
     Body: {"exclude": ["asp.net"], "restore": ["kubernetes"],
-           "weights": {"java": 4}, "mandatory": {"react": true}}
+           "weights": {"java": 4}, "mandatory": {"react": true},
+           "expected_version": 3}
     """
-    body = request.get_json(silent=True) or {}
-    a = _ANALYSES.get(analysis_id)
+    if not _valid_analysis_id(analysis_id):
+        return jsonify({"error": "Invalid analysis id."}), 400
+    ok, err = _review_authorized()
+    if not ok:
+        return err
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict):
+        return jsonify({"error": "Request body must be a JSON object."}), 400
+    err = _validate_review_body(body)
+    if err:
+        return jsonify({"error": err}), 400
+    a = _get_stored_analysis(analysis_id)
     if not a:
-        try:
-            from database.db_handler import get_candidate_by_id
-            stored = get_candidate_by_id(analysis_id)
-        except Exception:
-            stored = None
-        if not stored:
-            return jsonify({"error": "Analysis not found. Re-run the analysis "
-                                     "to recreate it before reviewing."}), 404
-        a = stored
-    src = a.get("explainable") or {}
+        return jsonify({"error": "Analysis not found. Re-run the analysis "
+                                 "to recreate it before reviewing."}), 404
     jd_text = a.get("job_description") or (a.get("jd_meta") or {}).get(
         "job_description", "")
     path = os.path.join(UPLOAD_FOLDER, a.get("resume_file", "") or "")
@@ -719,14 +971,89 @@ def v1_review_requirements(analysis_id):
     review_reason = (body.get("reason") or "reviewer correction")[:300]
     try:
         out = _rescore_with_overrides(a, path, jd_text, body, reviewed_by,
-                                      review_reason)
+                                      review_reason,
+                                      expected_version=body.get("expected_version"))
     except ValueError as e:
-        return jsonify({"error": str(e)}), 400
+        msg = str(e)
+        if "changed since you read it" in msg:
+            return jsonify({"error": msg, "conflict": True,
+                            "hint": "Re-read the analysis and retry with the "
+                                    "current version."}), 409
+        return jsonify({"error": msg}), 400
+    except Exception as e:
+        return _server_error(e, "v1_review_requirements")
+    # Audit log: actor + actions only, never resume text or secrets.
+    log.info("review analysis=%s actor=%s actions=%s version=%s",
+             analysis_id, reviewed_by,
+             [c.get("action") for c in out.get("changes", [])],
+             out.get("version"))
     return jsonify(out)
 
 
+def _validate_review_body(body):
+    """Schema + value validation for manual-review requests."""
+    import math
+    allowed = {"exclude", "restore", "weights", "mandatory", "reviewed_by",
+               "reason", "expected_version"}
+    unknown = [k for k in body if k not in allowed]
+    if unknown:
+        return f"Unknown field(s) {unknown}; allowed: {sorted(allowed)}."
+    for key in ("exclude", "restore"):
+        v = body.get(key)
+        if v is not None:
+            if (not isinstance(v, list)
+                    or not all(isinstance(x, str) and x.strip() for x in v)):
+                return f"'{key}' must be a list of requirement ids."
+            if len(v) > 50:
+                return f"'{key}' lists too many requirements (max 50)."
+    if body.get("exclude") and body.get("restore"):
+        clash = set(x.strip().lower() for x in body["exclude"]) & set(
+            x.strip().lower() for x in body["restore"])
+        if clash:
+            return (f"Invalid combination: {sorted(clash)} cannot be both "
+                    f"excluded and restored in one request.")
+    w = body.get("weights")
+    if w is not None:
+        if not isinstance(w, dict) or not w:
+            return "'weights' must be a non-empty object {requirement: weight}."
+        if len(w) > 100:
+            return "'weights' has too many entries (max 100)."
+        for k, v in w.items():
+            if not isinstance(k, str) or not k.strip():
+                return "'weights' keys must be requirement ids."
+            try:
+                fv = float(v)
+            except (TypeError, ValueError):
+                return f"weight for '{k}' must be a number, got {v!r}."
+            if not math.isfinite(fv):
+                return f"weight for '{k}' must be finite, got {v!r}."
+            if not 1 <= fv <= 5:
+                return f"weight for '{k}' must be in [1, 5], got {fv}."
+    m = body.get("mandatory")
+    if m is not None:
+        if not isinstance(m, dict) or not m:
+            return "'mandatory' must be a non-empty object {requirement: bool}."
+        for k, v in m.items():
+            if not isinstance(k, str) or not k.strip():
+                return "'mandatory' keys must be requirement ids."
+            if not isinstance(v, bool):
+                return f"mandatory flag for '{k}' must be true/false."
+    ev = body.get("expected_version")
+    if ev is not None and (not isinstance(ev, int) or ev < 1):
+        return "'expected_version' must be a positive integer."
+    rb = body.get("reviewed_by")
+    if rb is not None and not isinstance(rb, str):
+        return "'reviewed_by' must be a string."
+    rs = body.get("reason")
+    if rs is not None and not isinstance(rs, str):
+        return "'reason' must be a string."
+    if not any(body.get(k) for k in ("exclude", "restore", "weights", "mandatory")):
+        return "No review actions supplied (exclude/restore/weights/mandatory)."
+    return None
+
+
 def _rescore_with_overrides(stored, resume_path, jd_text, body, reviewed_by,
-                           review_reason):
+                           review_reason, expected_version=None):
     """Re-run the pipeline with reviewer corrections applied to requirements."""
     from services.requirement_extractor import extract_requirements
     from services.evidence_extractor import extract_evidence
@@ -765,17 +1092,22 @@ def _rescore_with_overrides(stored, resume_path, jd_text, body, reviewed_by,
         canon = (canon or "").strip().lower()
         if canon not in by_canon:
             raise ValueError(f"unknown requirement '{canon}'")
+        import math as _math
         try:
             w = float(weight)
         except (TypeError, ValueError):
             raise ValueError(f"weight for '{canon}' must be a number, "
                              f"got {weight!r}")
+        if not _math.isfinite(w):
+            raise ValueError(f"weight for '{canon}' must be finite, got {weight!r}")
         if not 1 <= w <= 5:
             raise ValueError(f"weight for '{canon}' must be in [1, 5], got {w}")
+        prev = by_canon[canon].get("importance_weight")
         by_canon[canon]["importance_weight"] = w
         by_canon[canon]["weight_source"] = "reviewed"
         by_canon[canon]["weight_reason"] = f"set by {reviewed_by}: {review_reason}"
-        changes.append({"requirement": canon, "action": "weight", "value": w})
+        changes.append({"requirement": canon, "action": "reweight", "value": w,
+                        "previous": prev})
     for canon, flag in (body.get("mandatory") or {}).items():
         canon = (canon or "").strip().lower()
         if canon not in by_canon:
@@ -819,16 +1151,51 @@ def _rescore_with_overrides(stored, resume_path, jd_text, body, reviewed_by,
         eligibility, evidence, stored.get("jd_meta") or {}, gaps,
         extraction_status=parsed.get("extraction_status", "ok"))
 
-    _ANALYSES[stored.get("id") or stored.get("candidate_id") or ""] = {
-        "candidate": {"final_score": analysis["aggregate"]["overall_score"],
-                      "experience_years": exp_years, "education": education},
-        "explainable": analysis, "jd_meta": stored.get("jd_meta") or {},
+    analysis_id = stored.get("id") or stored.get("candidate_id") or ""
+    explainable = {"status": "ok", "requirements": analysis["requirements"],
+                   "requirement_scores": analysis["requirements"],
+                   "aggregate": analysis["aggregate"],
+                   "eligibility": eligibility, "gaps": gaps, "report": report,
+                   "config_version": analysis.get("config_version"),
+                   "formula_version": analysis.get("formula_version")}
+    # Persist scores + audit events in the store (authoritative). The
+    # store bumps `version`; a concurrent review holding a stale
+    # expected_version gets 409 instead of silently overwriting.
+    from database.store import AnalysisNotFound, VersionConflict
+    _ACTION_MAP = {"excluded": "exclude", "restored": "restore",
+                   "weight": "reweight", "reweight": "reweight",
+                   "mandatory": "mandatory"}
+    try:
+        new_version = _store().update_scores(
+            analysis_id, explainable,
+            candidate_patch={"final_score": analysis["aggregate"]["overall_score"],
+                             "experience_years": exp_years, "education": education},
+            expected_version=expected_version)
+        _store().append_review_events(analysis_id, [{
+            "actor": reviewed_by, "action": _ACTION_MAP.get(c["action"], "reweight"),
+            "requirement_id": c.get("requirement", ""),
+            "previous_value": c.get("previous"),
+            "updated_value": c.get("value"),
+            "reason": review_reason} for c in changes])
+    except VersionConflict as e:
+        raise ValueError(str(e))
+    except AnalysisNotFound:
+        raise ValueError("Analysis not found in the persistent store.")
+    payload = _store().get_analysis(analysis_id) or {}
+    _ANALYSES[analysis_id] = {
+        "id": analysis_id,
+        "candidate": payload.get("candidate") or {
+            "final_score": analysis["aggregate"]["overall_score"],
+            "experience_years": exp_years, "education": education},
+        "explainable": explainable, "jd_meta": stored.get("jd_meta") or {},
         "job_description": jd_text,
         "required_experience": stored.get("required_experience") or 0,
         "resume_file": stored.get("resume_file"),
+        "version": new_version,
     }
     return {
-        "analysis_id": stored.get("id") or stored.get("candidate_id"),
+        "analysis_id": analysis_id,
+        "version": new_version,
         "reviewed_by": reviewed_by,
         "review_reason": review_reason,
         "changes": changes,
@@ -841,36 +1208,30 @@ def _rescore_with_overrides(stored, resume_path, jd_text, body, reviewed_by,
 
 
 @app.route("/api/v1/analyses/<analysis_id>/recalculate", methods=["POST"])
+@rate_limit(30)
 def v1_recalculate(analysis_id):
-    """Re-run the same documents with different overall weights."""
+    """Re-run the same documents with different overall weights.
+
+    Reads the authoritative stored record (never a live session), re-scores,
+    persists the new scores, and returns them. The stored report is rebuilt
+    from the same result, so JSON/PDF/API agree.
+    """
+    if not _valid_analysis_id(analysis_id):
+        return jsonify({"error": "Invalid analysis id."}), 400
     try:
-        body = request.get_json(silent=True) or {}
+        body = request.get_json(silent=True)
+        if not isinstance(body, dict):
+            return jsonify({"error": "Request body must be a JSON object."}), 400
         weights_override = _v1_validate_weights(body)
         if not weights_override:
             return jsonify({"error": "Provide weights {keyword, semantic, experience} summing to 1.0"}), 400
-        a = _ANALYSES.get(analysis_id)
+        a = _get_stored_analysis(analysis_id)
         if not a:
-            # Recalculation must not depend on an in-memory session: fall back
-            # to the persisted candidate record so it still works after a
-            # restart or deploy.
-            try:
-                from database.db_handler import get_candidate_by_id
-                stored = get_candidate_by_id(analysis_id)
-            except Exception:
-                stored = None
-            if not stored:
-                return jsonify({
-                    "error": "Analysis not found. Recalculation needs the stored "
-                             "resume, so re-run the analysis to recreate it.",
-                    "recoverable": "re-run analysis",
-                }), 404
-            a = {"candidate": {k: v for k, v in stored.items() if k != "explainable"},
-                 "explainable": stored.get("explainable", {}),
-                 "jd_meta": stored.get("jd_meta", {}),
-                 "job_description": stored.get("job_description", "")
-                                  or (stored.get("jd_meta", {}) or {}).get("job_description", ""),
-                 "required_experience": stored.get("required_experience", 0),
-                 "resume_file": stored.get("resume_file", "")}
+            return jsonify({
+                "error": "Analysis not found. Recalculation needs the stored "
+                         "resume, so re-run the analysis to recreate it.",
+                "recoverable": "re-run analysis",
+            }), 404
         path = os.path.join(UPLOAD_FOLDER, a.get("resume_file", ""))
         if not a.get("resume_file") or not os.path.exists(path):
             return jsonify({
@@ -904,23 +1265,37 @@ def v1_recalculate(analysis_id):
                               requirements, analysis["requirements"],
                               analysis["aggregate"], eligibility, evidence,
                               jd_meta, gaps)
-        a["explainable"] = {"requirement_scores": analysis["requirements"],
-                            "aggregate": analysis["aggregate"],
-                            "eligibility": eligibility, "gaps": gaps, "report": report,
-                            "config_version": analysis.get("config_version")}
+        explainable = {"status": "ok",
+                       "requirement_scores": analysis["requirements"],
+                       "requirements": analysis["requirements"],
+                       "aggregate": analysis["aggregate"],
+                       "eligibility": eligibility, "gaps": gaps, "report": report,
+                       "config_version": analysis.get("config_version"),
+                       "formula_version": analysis.get("formula_version")}
+        try:
+            new_version = _store().update_scores(analysis_id, explainable)
+        except Exception as e:
+            log.error("recalculate persist failed: %s", type(e).__name__)
+            if _is_prod():
+                return jsonify({"error": "Recalculation succeeded but could not "
+                                         "be persisted. Retry shortly."}), 503
+        else:
+            _ANALYSES.pop(analysis_id, None)  # drop stale cache; store is truth
+        a["explainable"] = explainable
         return jsonify({"analysis_id": analysis_id, "aggregate": analysis["aggregate"],
                         "requirements": analysis["requirements"], "report": report})
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
     except Exception as e:
-        import traceback
-        traceback.print_exc()
-        return jsonify({"error": str(e)}), 500
+        return _server_error(e, "v1_recalculate")
 
 
 # ── Analyze a single resume ───────────────────────────────────
 @app.route("/analyze", methods=["POST"])
 def analyze_resume():
+    too_big = _check_request_size()
+    if too_big:
+        return too_big
     try:
         if "resume" not in request.files:
             return jsonify({"error": "No resume file provided"}), 400
@@ -948,6 +1323,14 @@ def analyze_resume():
         unique_name = f"{uuid.uuid4().hex}.{file_ext}"
         file_path = os.path.join(UPLOAD_FOLDER, unique_name)
         file.save(file_path)
+        try:
+            _sniff_upload(file_path, file_ext)
+        except ValueError as ve:
+            try:
+                os.remove(file_path)
+            except Exception:
+                pass
+            return jsonify({"error": str(ve)}), 400
 
         # Analyze
         result = _analyze_single_file(file_path, required_skills, required_experience, job_description,
@@ -977,6 +1360,9 @@ def analyze_resume():
 # ── Batch analyze multiple resumes ────────────────────────────
 @app.route("/analyze-batch", methods=["POST"])
 def analyze_batch():
+    too_big = _check_request_size()
+    if too_big:
+        return too_big
     try:
         files = request.files.getlist("resumes")
         if not files:
@@ -1022,6 +1408,12 @@ def analyze_batch():
                     os.remove(file_path)
                     errors.append({"file": file.filename,
                                    "error": f"File exceeds {MAX_FILE_MB}MB limit"})
+                    continue
+                try:
+                    _sniff_upload(file_path, file_ext)
+                except ValueError as ve:
+                    os.remove(file_path)
+                    errors.append({"file": file.filename, "error": str(ve)})
                     continue
 
                 ext = _extract_resume(file_path)
@@ -1240,6 +1632,19 @@ def clear_all():
 
 
 if __name__ == "__main__":
+    import logging as _logging
+    _logging.basicConfig(level=_logging.INFO)
+    try:
+        app_config.validate()
+    except RuntimeError as e:
+        print(f"Configuration error:\n{e}\nRefusing to start.")
+        raise SystemExit(1)
+    try:
+        _store().ping()
+    except Exception as e:
+        print(f"{e}\nRefusing to start without the analysis database.")
+        raise SystemExit(1)
+    print(f"Config: {app_config.safe_summary()}")
     port = int(os.getenv("PORT", 5000))
     is_dev = os.getenv("APP_ENV") != "production" and os.getenv("FLASK_ENV") != "production"
     print(f"\n>> AI Resume Analyzer API running on http://localhost:{port} (debug={is_dev})\n")

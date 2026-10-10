@@ -22,6 +22,9 @@ data/resumes/*.txt
 !data/resumes/sample_*.txt
 !data/resumes/.gitkeep
 data/candidates.json
+data/analyses.db
+data/analyses.db-journal
+*.db-journal
 
 # Models (too large for git)
 models/*.pkl

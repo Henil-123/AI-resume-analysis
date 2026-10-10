@@ -206,7 +206,18 @@ def _analyze_single_file(file_path, required_skills, required_experience, job_de
 # ── Health check ──────────────────────────────────────────────
 @app.route("/health", methods=["GET"])
 def health():
-    return jsonify({"status": "ok", "message": "AI Resume Analyzer API is running"})
+    info = {"status": "ok", "message": "AI Resume Analyzer API is running"}
+    try:
+        from services.skill_extractor import SPACY_MODEL_NAME
+        info["spacy_model"] = SPACY_MODEL_NAME
+    except Exception as e:
+        info["spacy_model"] = f"unavailable: {e}"
+    try:
+        from services.job_matcher import embed_status
+        info["embed_model"] = embed_status()
+    except Exception as e:
+        info["embed_model"] = f"unavailable: {e}"
+    return jsonify(info)
 
 
 # ── Analyze a single resume ───────────────────────────────────

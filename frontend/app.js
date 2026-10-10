@@ -1,4 +1,7 @@
-const API = 'http://localhost:5000';
+const _host = window.location.hostname;
+const API = (_host === '' || _host === 'localhost' || _host === '127.0.0.1')
+  ? 'http://localhost:5000'  // local dev / Flask-served / file://
+  : '/api';                  // hosted frontend (Vercel rewrites /api/* to the backend)
 let allCands = [], filteredCands = [], selectedIds = new Set();
 let selectedFiles = [];
 let jdFile = null;

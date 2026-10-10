@@ -8,8 +8,34 @@ try:
 except ImportError:
     from skill_aliases import normalize_skill, normalize_skill_list
 
-# ── Load spaCy model ──────────────────────────────────────────────
-nlp = spacy.load("en_core_web_sm")
+# ── Load spaCy model (E050-proof: download, else blank pipeline) ────
+def _load_nlp():
+    """Load en_core_web_sm, downloading it on first use if missing.
+
+    Last-resort fallback is a blank English pipeline: the skill
+    PhraseMatcher only needs tokenization, so skill extraction keeps
+    working even with no model installed. Returns (nlp, model_name).
+    """
+    import spacy
+    try:
+        return spacy.load("en_core_web_sm"), "en_core_web_sm"
+    except OSError:
+        pass
+    try:
+        import subprocess
+        import sys
+        subprocess.check_call(
+            [sys.executable, "-m", "spacy", "download", "en_core_web_sm"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return spacy.load("en_core_web_sm"), "en_core_web_sm"
+    except Exception:
+        pass
+    print("WARNING: 'en_core_web_sm' unavailable — using blank 'en' pipeline. "
+          "Skill matching still works; NER-based features are degraded.")
+    return spacy.blank("en"), "blank-en (fallback)"
+
+
+nlp, SPACY_MODEL_NAME = _load_nlp()
 
 # ── Load skills dataset ───────────────────────────────────────────
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))

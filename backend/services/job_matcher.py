@@ -42,6 +42,15 @@ def get_embed_model_name():
     return _EMBED_MODEL_NAME
 
 
+def embed_status():
+    """Cached-only embedding state (never triggers a download).
+
+    Returns the loaded model name, or None if no model is loaded yet
+    (e.g. first call hasn't happened, or all downloads failed).
+    """
+    return _EMBED_MODEL_NAME
+
+
 # ── Embedding cache (chunk text hash -> normalized vector) ──
 _EMBED_CACHE = {}
 _EMBED_CACHE_MAX = 4000

@@ -31,16 +31,39 @@ def _get_collection():
 
 
 def _load_local():
+    """Read the JSON fallback store.
+
+    Tolerant by design: a truncated or corrupt file (e.g. an interrupted
+    write) previously raised and took down every request that read it,
+    destroying access to all records. The bad file is quarantined so the
+    store recovers instead of failing permanently.
+    """
     if not os.path.exists(LOCAL_DB_PATH):
         return []
-    with open(LOCAL_DB_PATH, "r") as f:
-        return json.load(f)
+    try:
+        # utf-8-sig tolerates a BOM, which would otherwise fail every read.
+        with open(LOCAL_DB_PATH, "r", encoding="utf-8-sig") as f:
+            data = json.load(f)
+        return data if isinstance(data, list) else []
+    except Exception as e:
+        try:
+            bad = LOCAL_DB_PATH + ".corrupt"
+            os.replace(LOCAL_DB_PATH, bad)
+            print(f"[db] local store unreadable ({e}); quarantined to {bad}")
+        except Exception:
+            pass
+        return []
 
 
 def _save_local(records):
+    """Atomic write: temp file then replace, so a crash cannot truncate data."""
     os.makedirs(os.path.dirname(LOCAL_DB_PATH), exist_ok=True)
-    with open(LOCAL_DB_PATH, "w") as f:
+    tmp = LOCAL_DB_PATH + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
         json.dump(records, f, indent=2, default=str)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp, LOCAL_DB_PATH)
 
 
 # ── Public API ────────────────────────────────────────────────
@@ -85,6 +108,21 @@ def get_candidate_by_id(candidate_id: str):
             if r.get("id") == candidate_id:
                 return r
     return None
+
+
+def update_candidate(candidate_id: str, fields: dict) -> bool:
+    """Merge fields into a stored candidate record. Returns success."""
+    col = _get_collection()
+    if col is not None:
+        col.update_one({"id": candidate_id}, {"$set": fields})
+        return True
+    records = _load_local()
+    for r in records:
+        if r.get("id") == candidate_id:
+            r.update(fields)
+            _save_local(records)
+            return True
+    return False
 
 
 def update_candidate_status(candidate_id: str, status: str) -> bool:

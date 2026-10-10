@@ -69,7 +69,11 @@ ALIASES = {
     "mongo": "mongodb",
     "es": "elasticsearch",
     "elastic": "elasticsearch",
-    "sql server": "sql",
+    "sql server": "sql server",
+    "mssql": "sql server",
+    "microsoft sql server": "sql server",
+    "my sql": "mysql",
+    "postgres sql": "postgresql",
     "no sql": "nosql",
 
     # Tools
@@ -99,6 +103,34 @@ ALIASES = {
     "dotnet": "asp.net",
     ".net": "asp.net",
 }
+
+
+# One-way domain containment: a concrete technology satisfies a GENERIC
+# requirement, but never the reverse. This is deliberately NOT an alias map,
+# because collapsing "mysql" -> "sql" would let a MySQL resume satisfy a
+# PostgreSQL requirement and erase a real distinction.
+DOMAIN_MEMBERS = {
+    "sql": {"mysql", "postgresql", "sql server", "sqlite", "mariadb",
+            "oracle", "db2", "pl/sql", "t-sql"},
+    "nosql": {"mongodb", "dynamodb", "redis", "cassandra", "elasticsearch"},
+    "javascript": {"typescript", "node.js"},
+    "css": {"bootstrap", "tailwind css", "sass"},
+    "cloud": {"aws ec2", "google cloud", "azure"},
+    "rest api": {"graphql"},
+    "containers": {"docker", "kubernetes"},
+}
+
+
+def domain_covers(requirement_skill: str, candidate_skill: str) -> bool:
+    """True when `candidate_skill` is a valid implementation of `requirement_skill`.
+
+    Asymmetric: mysql covers "sql", but "sql" does not cover "mysql".
+    """
+    req = normalize_skill(requirement_skill)
+    cand = normalize_skill(candidate_skill)
+    if req == cand:
+        return True
+    return cand in DOMAIN_MEMBERS.get(req, set())
 
 
 def normalize_skill(skill: str) -> str:

@@ -11,14 +11,25 @@ import re
 # matching the "experience" header.
 RESUME_SECTION_PATTERNS = {
     "summary": [r"^professional summary\b", r"^summary\b", r"career objective", r"^objective\b"],
-    "skills": [r"technical skills", r"^skills\b", r"core competencies", r"tech stack",
-               r"^technologies\b", r"^technical proficiencies\b"],
+    "skills": [r"technical skills", r"^skills\b", r"^key skills\b", r"^core competencies\b",
+               r"core competencies", r"tech stack", r"^technologies\b",
+               r"^technical proficiencies\b", r"^technical skills\b", r"^skills? ?& ?tools\b",
+               r"^programming languages\b", r"^competencies\b"],
     "experience": [r"work experience", r"professional experience", r"^experience\b",
-                   r"employment history", r"^employment\b"],
-    "projects": [r"^projects?\b", r"personal projects", r"academic projects", r"key projects"],
-    "education": [r"^education\b", r"academic background", r"^qualifications\b"],
-    "certifications": [r"^certifications?\b", r"^licenses\b", r"^credentials\b"],
-    "achievements": [r"^achievements?\b", r"accomplishments", r"^awards?\b"],
+                   r"employment history", r"^employment\b",
+                   # "INTERNSHIP EXPERIENCE" / "WORK EXPERIENCE" headings were
+                   # previously unrecognised, so those blocks were absorbed by
+                   # the preceding section (skills text landed in Education).
+                   r"^internship experience\b", r"^work experience\b",
+                   r"^internships?\b", r"^work history\b", r"^professional background\b"],
+    "projects": [r"^projects?\b", r"personal projects", r"academic projects",
+                 r"key projects", r"^project work\b", r"^academic projects?\b"],
+    "education": [r"^education\b", r"academic background", r"^qualifications\b",
+                  r"^educational (?:qualifications|background)\b", r"^academics\b"],
+    "certifications": [r"^certifications?\b", r"^licenses\b", r"^credentials\b",
+                       r"^courses? (?:done|certified)\b"],
+    "achievements": [r"^achievements?\b", r"accomplishments", r"^awards?\b",
+                     r"^achievements and awards\b"],
     "publications": [r"^publications?\b", r"^papers\b", r"^research\b"],
 }
 
@@ -97,38 +108,65 @@ def _find_headers(lines, patterns):
     return found, inline
 
 
+def _line_offsets(raw_text):
+    """Character offset at which each line starts (for accurate page mapping)."""
+    offsets, pos = [], 0
+    for line in (raw_text or "").split("\n"):
+        offsets.append(pos)
+        pos += len(line) + 1
+    return offsets
+
+
+def split_sections_indexed(raw_text, patterns):
+    """Like split_sections, but also returns {section: char_start_offset}.
+
+    The offset is the position of the section's HEADER line, so a passage can
+    be mapped back to the page it actually came from. Previously the offset was
+    found via `raw.find(body[:60])`, which returns the FIRST occurrence of that
+    text anywhere in the document and silently attributed evidence to the wrong
+    page (and, when sections repeated, the wrong section).
+    """
+    if not raw_text:
+        return {"other": ""}, {}
+    lines = raw_text.split("\n")
+    headers, inline = _find_headers(lines, patterns)
+    line_off = _line_offsets(raw_text)
+    if not headers:
+        return {"other": raw_text}, {"other": 0}
+    ordered = sorted(headers.items(), key=lambda kv: kv[1])
+    sections, offsets, n = {}, {}, len(lines)
+    for idx, (section, start) in enumerate(ordered):
+        end = ordered[idx + 1][1] if idx + 1 < len(ordered) else n
+        body = "\n".join(lines[start + 1:end]).strip()
+        tail = inline.get(section, "")
+        if tail:
+            body = (tail + "\n" + body).strip()
+        sections[section] = body
+        offsets[section] = line_off[start]
+    head = "\n".join(lines[:ordered[0][1]]).strip()
+    if head:
+        sections["header"] = head
+        offsets["header"] = 0
+    return sections, offsets
+
+
 def split_sections(raw_text, patterns):
     """Split raw text into {section: text}. Unknown text -> 'other'.
 
     Each section value starts AFTER its header line, so header text itself is
     never emitted as section body.
     """
-    if not raw_text:
-        return {"other": ""}
-    lines = raw_text.split("\n")
-    headers, inline = _find_headers(lines, patterns)
-    if not headers:
-        return {"other": raw_text}
-    ordered = sorted(headers.items(), key=lambda kv: kv[1])
-    sections, n = {}, len(lines)
-    for idx, (section, start) in enumerate(ordered):
-        end = ordered[idx + 1][1] if idx + 1 < len(ordered) else n
-        # Content that sits ON the header line ("Skills: Java, React") belongs
-        # to that section; dropping it lost every skill listed inline.
-        body = "\n".join(lines[start + 1:end]).strip()
-        tail = inline.get(section, "")
-        if tail:
-            body = (tail + "\n" + body).strip()
-        sections[section] = body
-    head = "\n".join(lines[:ordered[0][1]]).strip()
-    if head:
-        sections["header"] = head
-    return sections
+    return split_sections_indexed(raw_text, patterns)[0]
 
 
 def parse_resume_sections(raw_text):
     """Resume sections with fallback: everything -> 'other' when no headers."""
     return split_sections(raw_text or "", RESUME_SECTION_PATTERNS)
+
+
+def parse_resume_sections_indexed(raw_text):
+    """Resume sections + their character offsets (for page provenance)."""
+    return split_sections_indexed(raw_text or "", RESUME_SECTION_PATTERNS)
 
 
 def parse_jd_sections(raw_text):

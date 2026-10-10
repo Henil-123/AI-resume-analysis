@@ -36,6 +36,11 @@ def allowed_file(filename):
     return "." in name and name.rsplit(".", 1)[1].lower() in ALLOWED_EXTENSIONS
 
 
+def _normalize(skill):
+    from services.skill_aliases import normalize_skill
+    return normalize_skill(skill)
+
+
 def _prompt_injection_note(*texts):
     """Flag prompt-injection-looking content as data (never executed)."""
     import re
@@ -50,7 +55,8 @@ def _prompt_injection_note(*texts):
 
 def _run_explainable(parsed, skills_found, experience_years, education,
                      job_description, jd_meta, required_skills,
-                     required_experience, fuzzy_hits=None, weights_override=None):
+                     required_experience, fuzzy_hits=None, weights_override=None,
+                     experience_profile=None):
     """Full explainable pipeline (requirements -> evidence -> R_i -> S -> report).
 
     Raises ValueError on insufficient data; never fabricates model output.
@@ -64,16 +70,26 @@ def _run_explainable(parsed, skills_found, experience_years, education,
     requirements = extract_requirements(job_description or "", jd_meta)
     if not requirements:
         raise ValueError("insufficient-data: no scoreable requirements extracted from JD")
-    evidence = extract_evidence(parsed, skills_found)
+    # Evidence must be gathered for the JD's REQUIREMENTS, not just the skills
+    # the resume happens to mention. Passing only skills_found meant a
+    # requirement like "SQL" got no evidence record when the resume listed
+    # "MySQL", so P_i fell to 0 even though supporting text existed.
+    want_skills = sorted({_normalize(r.get("canonical_skill"))
+                          for r in requirements if r.get("canonical_skill")}
+                         | {_normalize(s) for s in (skills_found or [])})
+    evidence = extract_evidence(parsed, want_skills)
     analysis = engine_analyze(requirements, skills_found, evidence,
                               parsed.get("clean_text", ""), experience_years,
-                              required_experience, fuzzy_hits, weights_override=weights_override)
+                              required_experience, fuzzy_hits,
+                              weights_override=weights_override,
+                              experience_profile=experience_profile)
     if analysis.get("status") != "ok":
         raise ValueError(analysis.get("reason", "insufficient-data"))
     req_scores = analysis["requirements"]
     exp_detail = (analysis.get("aggregate", {}).get("experience_detail") or {})
     eligibility = check_eligibility(requirements, evidence, education,
-                                    experience_years, required_experience, jd_meta)
+                                    experience_years, required_experience, jd_meta,
+                                    jd_text=job_description or "")
     gaps = analyze_gaps(req_scores)
     inj = _prompt_injection_note(parsed.get("raw_text", ""), job_description or "")
     errors = ([inj] if inj else []) + (
@@ -178,12 +194,17 @@ def _extract_resume(file_path):
     if parsed.get("word_count", 0) == 0:
         raise ValueError("No readable text extracted — file is empty or unreadable")
     skills_found = extract_skills(parsed["clean_text"])
+    # Experience and education need the RAW text: clean_text collapses newlines,
+    # which destroys the section headers the extractor relies on to tell
+    # employment apart from university and project dates.
+    exp_years, exp_detail = extract_experience_years(parsed["raw_text"], detail=True)
     return {
         "parsed": parsed,
         "skills_found": skills_found,
         "skills_by_category": extract_skills_with_categories(parsed["clean_text"]),
-        "experience_years": extract_experience_years(parsed["clean_text"]),
-        "education": extract_education(parsed["clean_text"]),
+        "experience_years": exp_years,
+        "experience_detail": exp_detail,
+        "education": extract_education(parsed["raw_text"]),
         "resume_file": os.path.basename(file_path),
     }
 
@@ -276,7 +297,7 @@ def _score_extracted(ext, required_skills, required_experience, job_description,
                 parsed, skills_found, experience_years, education,
                 job_description, jd_meta or {}, required_skills,
                 required_experience, weighted["fuzzy_matches"],
-                weights_override)
+                weights_override, experience_profile=ext.get("experience_detail"))
         else:
             result["explainable"] = {"status": "insufficient-data",
                                      "reason": "no job description provided"}
@@ -368,22 +389,55 @@ def health():
 # ═══════════════════════════════════════════════════════════
 # Versioned explainable API (spec section 20)
 # ═══════════════════════════════════════════════════════════
+# Weights are accepted if they sum to 1.0 within this tolerance. 0.6+0.3+0.1
+# is 0.9999999999999999 in IEEE-754, so an exact comparison rejected the
+# documented defaults.
+WEIGHT_SUM_TOLERANCE = 1e-6
+
+
 def _v1_validate_weights(body):
+    """Validate recalculation weights.
+
+    Returns a complete {keyword, semantic, experience} dict (missing components
+    keep their configured default), or None when no weights were supplied.
+    Weights are NOT silently renormalised: a genuinely wrong sum is rejected
+    with the offending values named.
+    """
     w = (body or {}).get("weights")
     if w is None:
         return None
     if not isinstance(w, dict):
         raise ValueError("weights must be an object {keyword, semantic, experience}")
+    from services.scoring_engine import get_config as _cfg
+    defaults = {"keyword": .6, "semantic": .3, "experience": .1}
+    try:
+        ov = (_cfg().get("overall") or {})
+        defaults = {"keyword": ov.get("keyword_weight", .6),
+                    "semantic": ov.get("semantic_weight", .3),
+                    "experience": ov.get("experience_weight", .1)}
+    except Exception:
+        pass
+    unknown = [k for k in w if k not in defaults]
+    if unknown:
+        raise ValueError(f"unknown weight(s) {unknown}; expected keys "
+                         f"{sorted(defaults)}")
     out = {}
-    for k in ("keyword", "semantic", "experience"):
-        if k in w:
-            v = float(w[k])
-            if not 0.0 <= v <= 1.0:
-                raise ValueError(f"weight {k} must be in [0,1]")
-            out[k] = v
-    if abs(sum(out.values()) - 1.0) > 1e-6:
-        raise ValueError("weights must sum to 1.0")
-    return out
+    for k, v in w.items():
+        try:
+            fv = float(v)
+        except (TypeError, ValueError):
+            raise ValueError(f"weight '{k}' must be a number, got {v!r}")
+        if not (0.0 <= fv <= 1.0):
+            raise ValueError(f"weight '{k}' must be in [0, 1], got {fv}")
+        out[k] = fv
+    merged = {k: out.get(k, defaults[k]) for k in defaults}
+    total = sum(merged.values())
+    if abs(total - 1.0) > WEIGHT_SUM_TOLERANCE:
+        raise ValueError(
+            "weights must sum to 1.0 (got %.6f from %s); adjust the values or "
+            "omit a field to keep its default of %.2f"
+            % (total, {k: round(v, 4) for k, v in merged.items()}, 1.0))
+    return merged
 
 
 def _v1_store_analysis(candidate_id, payload):
@@ -441,7 +495,7 @@ def v1_upload_resume():
                 "sections": list(parse_resume_sections(parsed["raw_text"]).keys()),
                 "skills": skills,
                 "skills_by_category": extract_skills_with_categories(parsed["clean_text"]),
-                "experience_years": extract_experience_years(parsed["clean_text"]),
+                "experience_years": extract_experience_years(parsed["raw_text"]),
                 "education": extract_education(parsed["clean_text"]),
                 "email": parsed["email"], "phone": parsed["phone"], "name": parsed["name"],
             })
@@ -538,6 +592,13 @@ def v1_analyze():
             result["summary"] = generate_resume_summary(result)
         candidate_id = save_candidate(result)
         result["id"] = candidate_id
+        # Persist the inputs needed to reproduce/recalculate this analysis.
+        result["jd_meta"] = {k: v for k, v in jd_meta.items() if k != "clean_text"}
+        result["job_description"] = job_description[:10000]
+        from database.db_handler import update_candidate as _upd
+        _upd(candidate_id, {"jd_meta": result["jd_meta"],
+                            "job_description": result["job_description"],
+                            "resume_file": os.path.basename(path)})
         analysis_id = _v1_store_analysis(candidate_id, {
             "candidate": {k: v for k, v in result.items() if k != "explainable"},
             "explainable": result.get("explainable", {}),
@@ -622,10 +683,35 @@ def v1_recalculate(analysis_id):
             return jsonify({"error": "Provide weights {keyword, semantic, experience} summing to 1.0"}), 400
         a = _ANALYSES.get(analysis_id)
         if not a:
-            return jsonify({"error": "Analysis not found (recalculate needs the live session store)"}), 404
+            # Recalculation must not depend on an in-memory session: fall back
+            # to the persisted candidate record so it still works after a
+            # restart or deploy.
+            try:
+                from database.db_handler import get_candidate_by_id
+                stored = get_candidate_by_id(analysis_id)
+            except Exception:
+                stored = None
+            if not stored:
+                return jsonify({
+                    "error": "Analysis not found. Recalculation needs the stored "
+                             "resume, so re-run the analysis to recreate it.",
+                    "recoverable": "re-run analysis",
+                }), 404
+            a = {"candidate": {k: v for k, v in stored.items() if k != "explainable"},
+                 "explainable": stored.get("explainable", {}),
+                 "jd_meta": stored.get("jd_meta", {}),
+                 "job_description": stored.get("job_description", "")
+                                  or (stored.get("jd_meta", {}) or {}).get("job_description", ""),
+                 "required_experience": stored.get("required_experience", 0),
+                 "resume_file": stored.get("resume_file", "")}
         path = os.path.join(UPLOAD_FOLDER, a.get("resume_file", ""))
-        if not os.path.exists(path):
-            return jsonify({"error": "Stored resume file no longer available"}), 410
+        if not a.get("resume_file") or not os.path.exists(path):
+            return jsonify({
+                "error": "The original resume document for this analysis is no "
+                         "longer available, so it cannot be recalculated. "
+                         "Re-run the analysis to reproduce it with new weights.",
+                "recoverable": "re-run analysis",
+            }), 410
         from services.requirement_extractor import extract_requirements
         from services.evidence_extractor import extract_evidence
         from services.scoring_engine import analyze as engine_analyze

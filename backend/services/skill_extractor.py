@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import spacy
 from spacy.matcher import PhraseMatcher
 
@@ -103,96 +104,61 @@ def extract_skills_with_categories(text):
 
 def extract_experience_years(text, detail=False):
     """
-    Estimate professional experience from resume text.
+    Professional experience in years (section-aware).
 
-    Signals:
-      - explicit '5+ years of experience'
-      - explicit durations attached to a role, including MONTHS/WEEKS
-        (e.g. 'Python Developer Intern (2 months)', '6-month internship')
-      - date ranges ('2019-2023', '2020-Present', 'Jan 2022 - Mar 2023')
+    Delegates to experience_extractor, which only counts EMPLOYMENT sections,
+    merges overlapping date ranges, honours month precision, and reports
+    project/education periods separately. The previous implementation scanned
+    the whole text for any year pair and took the maximum, which counted a
+    2021-2025 degree and 2024-2025 project as professional employment and
+    inflated a two-month internship to four years.
 
-    Only PROFESSIONAL experience counts (employment, internship, contract).
-    Personal/academic projects are detected separately and never inflate
-    professional experience.
-
-    Returns years as a float. With detail=True returns (years, detail_dict).
+    Returns a float, or (years, detail_dict) when detail=True.
     """
-    import re
-    low = (text or "").lower()
-
-    years = 0.0
-    for pattern in (r'(\d+)\+?\s*years?\s*of\s*experience',
-                    r'(\d+)\+?\s*years?\s*experience',
-                    r'experience\s*of\s*(\d+)\+?\s*years?',
-                    r'(\d+)\+?\s*yrs?\s*experience',
-                    r'over\s*(\d+)\s*years?'):
-        for m in re.findall(pattern, low):
-            val = int(m)
-            if val < 50:
-                years = max(years, float(val))
-
-    roles = []
-    # "2 months" / "6-month" / "1 year" attached to an employment/internship role
-    role_ctx = r'[^.\n]{0,80}?(?:intern(?:ship)?|developer|engineer|analyst|manager|consultant|freelance|contract|full[\s-]?time|part[\s-]?time)'
-    for m in re.finditer(role_ctx, low):
-        window = low[m.start(): m.start() + 160]
-        mo = re.search(r'(\d+)\s*(?:-|\s)?\s*(month|week|day|year)s?', window)
-        if not mo:
-            continue
-        n, unit = int(mo.group(1)), mo.group(2)
-        if unit == "month":
-            yrs = n / 12.0
-        elif unit == "week":
-            yrs = n / 52.0
-        elif unit == "day":
-            yrs = n / 365.0
-        else:
-            yrs = float(n)
-        if 0 < yrs < 50:
-            roles.append({"role": m.group(0).strip()[:60], "years": round(yrs, 3),
-                          "stated": mo.group(0).strip()})
-            years = max(years, yrs)
-
-    # Date-range inference (professional contexts only)
-    date_years = 0.0
-    try:
-        try:
-            from services.resume_parser import estimate_experience_from_dates
-        except ImportError:
-            from resume_parser import estimate_experience_from_dates
-        date_years = float(estimate_experience_from_dates(text) or 0)
-    except Exception:
-        date_years = 0.0
-    years = max(years, date_years)
-
-    if not detail:
-        return round(years, 2)
-
-    return round(years, 2), {
-        "years": round(years, 2),
-        "explicit_mention_years": round(max(
-            [float(int(m)) for p in (r'(\d+)\+?\s*years?\s*of\s*experience',
-                                     r'(\d+)\+?\s*years?\s*experience')
-             for m in re.findall(p, low) if int(m) < 50] or [0.0]), 2),
-        "role_durations": roles,
-        "date_range_years": round(date_years, 2),
-        "professional": True,
-        "note": "Professional roles and internships only; personal projects excluded.",
-    }
+    return extract_experience_years_from_profile(text, detail=detail)
 
 
 def extract_education(text):
-    """Detect education level from resume text."""
-    text_lower = text.lower()
-    if any(w in text_lower for w in ['phd', 'ph.d', 'doctorate']):
+    """Detect education level from resume text.
+
+    Word-boundary aware: "b.e" previously matched inside unrelated words, and
+    common campus-JD spellings ("BE/BTech", "B Tech", "B.E.") are now covered
+    so a real degree requirement is not reported as "Not specified".
+    """
+    t = (text or "").lower()
+    if re.search(r"\b(ph\.?d|doctorate)\b", t):
         return "PhD"
-    elif any(w in text_lower for w in ['master', 'm.tech', 'm.sc', 'mba', 'mca']):
+    if re.search(r"\b(master'?s?|m\.?tech|m\.?sc|mba|mca|ms\b|post\s*graduate)", t):
         return "Masters"
-    elif any(w in text_lower for w in ['bachelor', 'b.tech', 'b.sc', 'b.e', 'b.com', 'undergraduate']):
+    if re.search(r"\b(bachelor'?s?|b\.?\s?tech|b\.?\s?sc|b\.?\s?e\b|b\.?\s?com|"
+                 r"b\.?\s?eng|undergraduate|b\.?e\b/?\s?b\.?tech|be\s*/\s*btech)", t):
         return "Bachelors"
-    elif any(w in text_lower for w in ['diploma', 'certificate', '12th', 'higher secondary']):
+    if re.search(r"\b(diploma|certificate|12th|higher secondary|intermediate|10th)\b", t):
         return "Diploma/Certificate"
     return "Not specified"
+
+
+def extract_experience_years_from_profile(raw_text, detail=False):
+    """Professional experience only (section-aware). See experience_extractor."""
+    try:
+        try:
+            from services.experience_extractor import extract_experience_profile
+        except ImportError:
+            from experience_extractor import extract_experience_profile
+        prof = extract_experience_profile(raw_text or "")
+    except Exception as exc:
+        prof = {"professional_years": 0.0, "confidence": "none",
+                "basis": f"extraction failed: {exc}",
+                "note": "Experience could not be "
+                "verified; treated as unknown, not zero.", "evidence": [],
+                "unverifiable": [], "roles": [], "project_years": 0.0,
+                "project_periods": [], "education_years": 0.0,
+                "education_periods": [], "explicit_durations": [],
+                "stated_years_claims": [], "employment_section_found": False,
+                "sections_seen": []}
+    if detail:
+        return prof["professional_years"], prof
+    return prof["professional_years"]
 
 
 def extract_required_skills_from_jd(job_description, max_skills=20, with_counts=False):

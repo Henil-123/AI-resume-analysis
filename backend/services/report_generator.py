@@ -66,6 +66,7 @@ def build_report(candidate, requirements, requirement_scores, aggregate,
     cfg_v = (aggregate or {}).get("config_version", "2.0.0")
     return {
         "executive_summary": {
+            # Single authoritative headline. Everything else references this.
             "overall_score": (aggregate or {}).get("overall_score"),
             "methodology": ("Primary S=0.60*K+0.30*M+0.10*E over requirement-level "
                             "R_i=100*(0.35K_i+0.35M_i+0.30P_i). See scoring_methodology.md."),
@@ -74,14 +75,51 @@ def build_report(candidate, requirements, requirement_scores, aggregate,
             "main_strengths": strengths, "main_gaps": crit_gaps or [g["requirement"] for g in gaps[:3]],
             "confidence": ("high" if extraction_status == "ok" and model_name else "low"),
             "limitations": ("Heuristic screening support, not a validated hiring prediction. "
+                            "Cosine similarity is not a probability or proficiency "
+                            "percentage. "
                             + ("; ".join(errors) if errors else "No extraction errors.")),
         },
+        "eligibility_status": {
+            "overall": (eligibility or {}).get("overall", "UNKNOWN"),
+            "criteria": (eligibility or {}).get("criteria", []),
+            "skill_gaps": (eligibility or {}).get("skill_gaps", []),
+            "note": (eligibility or {}).get("note", ""),
+        },
         "score_breakdown": {
+            "primary_overall_score": (aggregate or {}).get("overall_score"),
             "keyword_coverage": (aggregate or {}).get("keyword_coverage"),
             "semantic_relevance": (aggregate or {}).get("semantic_relevance"),
             "experience_fit": (aggregate or {}).get("experience_fit"),
-            "requirement_weighted_score": (aggregate or {}).get("requirement_weighted_score"),
-            "unweighted_skill_coverage": (aggregate or {}).get("unweighted_skill_coverage"),
+            # Diagnostic only: never presented as the headline.
+            "requirement_weighted_diagnostic": (aggregate or {}).get(
+                "requirement_weighted_score"),
+            "requirement_weighted_score": (aggregate or {}).get(
+                "requirement_weighted_score"),
+            "unweighted_skill_coverage": (aggregate or {}).get(
+                "unweighted_skill_coverage"),
+            "formula": (aggregate or {}).get("formula"),
+            "formula_inputs": (aggregate or {}).get("formula_inputs"),
+            "rounding": (aggregate or {}).get("rounding"),
+            "note": ("Components and the primary score are computed at full "
+                     "precision; rounding is applied for display only."),
+        },
+        "verified_experience": {
+            "professional_years": (aggregate or {}).get(
+                "experience_detail", {}).get("professional_years"),
+            "project_years": (aggregate or {}).get(
+                "experience_detail", {}).get("project_years"),
+            "education_years": (aggregate or {}).get(
+                "experience_detail", {}).get("education_years"),
+            "confidence": (aggregate or {}).get(
+                "experience_detail", {}).get("confidence"),
+            "basis": (aggregate or {}).get("experience_detail", {}).get("basis"),
+            "roles": (aggregate or {}).get("experience_detail", {}).get("roles", []),
+            "evidence": (aggregate or {}).get("experience_detail", {}).get("evidence", []),
+            "unverifiable": (aggregate or {}).get(
+                "experience_detail", {}).get("unverifiable", []),
+            "note": ("Professional experience counts employment and internships "
+                     "only. Projects and education are reported separately and "
+                     "never inflate professional tenure."),
         },
         "requirements": requirement_scores,
         "matched_skills": {
@@ -107,14 +145,19 @@ def build_report(candidate, requirements, requirement_scores, aggregate,
         "technical_audit": {
             "model": model_name, "spacy": _spacy,
             "formula": (aggregate or {}).get("formula"),
-            "formula_version": "explainable-v2",
+            "formula_version": (aggregate or {}).get("formula_version",
+                                                      "explainable-v2"),
             "config_version": cfg_v,
             "weights": (aggregate or {}).get("weights"),
+            "formula_inputs": (aggregate or {}).get("formula_inputs"),
+            "semantic_model": (aggregate or {}).get("semantic_model"),
             "thresholds": {"matched": 70, "partial": 40},
             "extraction_status": extraction_status,
             "evidence_count": len(evidence_records or []),
             "errors": errors or [],
             "scoring_timestamp": now,
+            "reproducibility": ("Re-derive any score with the formula and the "
+                                "exact formula_inputs recorded above."),
         },
         "candidate": {"name": candidate.get("name"), "education": candidate.get("education"),
                       "experience_years": candidate.get("experience_years")},

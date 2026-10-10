@@ -32,6 +32,14 @@ def _category_of(skill):
         return "general"
 
 
+def _page_for_line(jd_meta, line_idx):
+    """Page number for a JD line, from jd_meta's page map (never invented)."""
+    pages = (jd_meta or {}).get("line_pages") or []
+    if pages and 0 <= line_idx < len(pages):
+        return pages[line_idx]
+    return (jd_meta or {}).get("default_page", 1)
+
+
 def _mandatory_markers(line):
     low = line.lower()
     explicit = any(k in low for k in (
@@ -40,6 +48,66 @@ def _mandatory_markers(line):
     preferred = any(k in low for k in (
         "preferred", "nice to have", "bonus", "plus", "desired", "good to have"))
     return explicit, preferred
+
+
+# Requirement classes. Only EXPLICIT_MANDATORY may influence eligibility;
+# everything else is a priority that feeds the compatibility score.
+EXPLICIT_MANDATORY = "explicit_mandatory"
+LEARNING_OUTCOME = "required_learning_outcome"
+PREFERRED = "preferred"
+BEHAVIOURAL = "behavioural_competency"
+INFERRED = "inferred_priority"
+
+# Skills that are never a technical must-have on their own: they describe
+# working style or tooling expectations, not role-defining capability.
+BEHAVIOURAL_SKILLS = {
+    "communication", "teamwork", "leadership", "collaboration", "problem solving",
+    "problem-solving", "presentation", "ownership", "attention to detail",
+    "time management", "analytical thinking", "critical thinking",
+}
+DEVOPS_AWARENESS = {"devops", "monitoring", "ci/cd", "logging", "observability",
+                    "infrastructure as code"}
+
+# Equivalent/duplicate skills that must collapse into ONE requirement so the
+# requirement count and the weighted average are not double counted.
+DUPLICATE_GROUPS = [
+    {"c", "c#", "c++", "java"},          # kept separate, listed for clarity
+    {"asp.net", ".net", "dotnet"},       # alias set, one entry only
+    {"rest api", "rest apis", "restful", "restful api", "restful apis"},
+    {"ci/cd", "ci-cd", "cicd", "continuous integration"},
+]
+
+
+def _dedupe_key(canon):
+    for grp in DUPLICATE_GROUPS:
+        if canon in grp:
+            # 'c' and 'c#' are distinct languages: do not merge them.
+            if canon in ("c", "c++", "java"):
+                return canon
+            return sorted(grp)[0]
+    return canon
+
+
+def _classify(canon, in_must, in_pref, explicit_marker, count):
+    """Return (classification, mandatory, mandatory_explicit, weight, reason)."""
+    if canon in BEHAVIOURAL_SKILLS:
+        return (BEHAVIOURAL, False, False, 2,
+                "inferred: behavioural competency, not an eligibility rule")
+    if in_pref and not in_must and not explicit_marker:
+        return (PREFERRED, False, False, 2,
+                "explicit: listed under preferred/nice-to-have section")
+    if in_must or explicit_marker:
+        if canon in DEVOPS_AWARENESS:
+            # "Exposure to DevOps/CI/CD/monitoring" is awareness, not a bar.
+            return (LEARNING_OUTCOME, False, False, 3,
+                    "inferred: DevOps/monitoring awareness, not an eligibility bar")
+        return (EXPLICIT_MANDATORY, True, True, 5,
+                "explicit: listed under required/must-have section"
+                if in_must else
+                "explicit: mandatory wording on the requirement line")
+    return (INFERRED, False, False, 4 if count >= 3 else 3,
+            f"inferred: {'high frequency' if count >= 3 else 'default'} priority "
+            f"({count} mention(s)); no mandatory wording in the JD")
 
 
 def extract_requirements(jd_text, jd_meta=None):
@@ -68,47 +136,33 @@ def extract_requirements(jd_text, jd_meta=None):
     lines = jd_text.split("\n")
 
     def first_line_for(canon):
-        """The JD line that actually mentions this skill (mandatory marker source)."""
-        for line in lines:
+        """The JD line that mentions this skill + the page it appears on."""
+        for idx, line in enumerate(lines):
             low = line.lower()
-            if canon in low or canon.replace("_", " ") in low or canon.replace(" ", "_") in low:
-                return line.strip()[:300]
-        return ""
+            if (canon in low or canon.replace("_", " ") in low
+                    or canon.replace(" ", "_") in low):
+                return line.strip()[:300], _page_for_line(jd_meta, idx)
+        return "", jd_meta.get("default_page", 1)
+
+    source_text, source_page = "", (jd_meta or {}).get("default_page", 1)
 
     requirements = []
+    emitted_keys = set()
     for i, (skill, count) in enumerate(
             sorted(counts.items(), key=lambda kv: (-kv[1], kv[0])), start=1):
         canon = normalize_skill(skill)
+        # Collapse alias duplicates so one capability is not counted twice.
+        dkey = _dedupe_key(canon)
+        if dkey in emitted_keys:
+            continue
         in_must = canon in req_section_skills
         in_pref = canon in pref_section_skills
-        source_text = first_line_for(canon)
+        source_text, source_page = first_line_for(canon)
         explicit_marker, _pref_marker = _mandatory_markers(source_text)
-
-        if in_pref:
-            # Preferred never overrides an explicit required marker.
-            if in_must or explicit_marker:
-                mandatory = True
-                source = "explicit: listed under required section or with mandatory wording"
-                weight, w_reason = 5, "explicit: required"
-            else:
-                mandatory = False
-                source = "explicit: listed under preferred/nice-to-have section"
-                weight, w_reason = 2, "explicit: preferred section"
-        elif in_must or explicit_marker:
-            mandatory = True
-            source = "explicit: listed under required/must-have section" if in_must else \
-                     "explicit: mandatory wording on the requirement line"
-            weight, w_reason = 5, "explicit: required"
-        else:
-            # NOT mandatory. Weight is an inferred priority only.
-            mandatory = False
-            source = "inferred: no explicit mandatory statement in JD"
-            if count >= 3:
-                weight, w_reason = 4, f"inferred: high frequency ({count} mentions)"
-            elif count == 2:
-                weight, w_reason = 3, "inferred: moderate emphasis (2 mentions)"
-            else:
-                weight, w_reason = 3, "inferred: default moderate priority"
+        classification, mandatory, mandatory_explicit, weight, w_reason = _classify(
+            canon, in_must, in_pref, explicit_marker, count)
+        emitted_keys.add(dkey)
+        source = w_reason
 
         requirements.append({
             "requirement_id": f"req_{i:03d}",
@@ -116,27 +170,25 @@ def extract_requirements(jd_text, jd_meta=None):
             "category": _category_of(canon),
             "description": f"Demonstrated capability in {canon} as required by the JD",
             "importance_weight": weight,
+            # Whether this weight was stated by the JD or inferred by the model.
+            "weight_source": "explicit" if classification in (
+                EXPLICIT_MANDATORY, PREFERRED) else "inferred",
+            "classification": classification,
             "mandatory": mandatory,
             "mandatory_source": source,
-            "mandatory_explicit": bool(source.startswith("explicit")),
-            "requirement_type": "technical_skill",
+            "mandatory_explicit": bool(mandatory_explicit),
+            "requirement_type": ("behavioural" if classification == BEHAVIOURAL
+                                 else "technical_skill"),
             "canonical_skill": canon,
             "aliases": [],
             "expected_evidence": ["project", "work_experience"],
-            "source_page": 1,
+            "source_page": source_page,
             "source_text": source_text,
-            "weight_inferred": not (mandatory and source.startswith("explicit")) and not in_pref,
+            "weight_inferred": classification not in (EXPLICIT_MANDATORY, PREFERRED),
             "weight_reason": w_reason,
             "mention_count": count,
         })
-    # Dedupe equivalent canonical skills (normalization already applied).
-    seen, deduped = set(), []
-    for r in requirements:
-        if r["canonical_skill"] in seen:
-            continue
-        seen.add(r["canonical_skill"])
-        deduped.append(r)
-    # Re-number after dedupe.
-    for i, r in enumerate(deduped, start=1):
+    # Re-number after duplicate collapsing.
+    for i, r in enumerate(requirements, start=1):
         r["requirement_id"] = f"req_{i:03d}"
-    return deduped
+    return requirements

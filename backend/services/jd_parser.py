@@ -30,12 +30,26 @@ NICE_HEADERS = (
     "good to have", "desired", "additional",
 )
 
+# Headers that END a must/nice block. Without this, a later header such as
+# "Education Requirements" re-opened the must block, so a DIFFERENT role's
+# section that followed it (e.g. ".NET Full Stack Developer: C#, ASP.NET")
+# was classified as a must-have for the Java role.
+SECTION_BREAKERS = (
+    "education requirement", "education", "academic", "eligibility",
+    "additional eligibility", "who we are looking for", "selection process",
+    "how to apply", "about us", "about hcl", "benefits", "compensation",
+    "role description", "job description", "responsibilities", "role overview",
+)
+
 
 def _header_kind(line):
-    """Classify a section header line as must / nice / other."""
+    """Classify a section header line as must / nice / other/break."""
     low = re.sub(r'[^a-z ]', '', line.lower()).strip()
     if not low or len(low) > 60:
         return None
+    # A breaker wins over must/nice: it terminates the current block.
+    if any(b in low for b in SECTION_BREAKERS):
+        return "break"
     if any(k in low for k in NICE_HEADERS):
         return "nice"
     if any(k in low for k in MUST_HAVE_HEADERS):
@@ -49,8 +63,10 @@ def _header_kind(line):
 def split_jd_sections(raw_text):
     """Split JD raw text into (must_text, nice_text).
 
-    Lines following a must-have/requirements header go to must_text,
-    lines under nice-to-have/preferred headers go to nice_text.
+    Lines following a must-have/requirements header go to must_text, lines
+    under nice-to-have/preferred headers go to nice_text. A breaker header
+    (education, eligibility, a new role block) ends the current block, so a
+    second role's skills are never attributed to the selected role.
     """
     must_lines, nice_lines = [], []
     if not raw_text:
@@ -61,6 +77,9 @@ def split_jd_sections(raw_text):
         kind = _header_kind(s)
         if kind in ("must", "nice"):
             current = kind
+            continue
+        if kind == "break":
+            current = None
             continue
         if not s:
             continue
@@ -141,11 +160,56 @@ def extract_min_experience(jd_text):
                 pass
     if vals:
         return max(vals)
-    # Fallback to generic resume-style extractor
-    try:
-        return extract_experience_years(jd_text)
-    except Exception:
-        return 0
+    # No explicit "N years" bar in the JD. Do NOT fall back to the resume-style
+    # experience extractor: on a JD full of dates it would read a batch year or
+    # a degree duration as a work-experience requirement.
+    return 0
+
+
+_EDU_RULE_RE = re.compile(
+    r"(?:minimum|preferred|required)?\s*(?:qualification|education|degree)\s*"
+    r"[^\n.:]{0,40}?[:\-]?\s*([^\n]{0,120})", re.I)
+_EDU_LINE_RE = re.compile(
+    r"[^\n]{0,160}(?:bachelor|b\.?\s?tech|b\.?\s?sc|b\.?\s?e\b|b\.?\s?eng|"
+    r"b\.?\s?com|be\s*/\s*btech|b\.?e\b/?\s?b\.?tech|m\.?tech|mca|mba|"
+    r"master'?s?|diploma|ph\.?d|undergraduate|graduate)[^\n]{0,160}", re.I)
+
+
+def _jd_line_pages(raw):
+    """Map each JD line to its source page using form-feed page breaks."""
+    if not raw:
+        return []
+    pages, page = [], 1
+    for line in raw.split("\n"):
+        pages.append(page)
+        page += line.count("\f")
+    # \f inside a line still advances the page for the following lines.
+    return pages
+
+
+def extract_education_requirement(raw_text):
+    """Degree requirement the JD EXPLICITLY states.
+
+    Returns (level, source_line). When no education requirement is stated the
+    level is "Not specified" and the source is empty, so no eligibility rule is
+    invented (e.g. a Diploma/Certificate bar is never assumed for a BE/BTech
+    campus role).
+    """
+    if not raw_text:
+        return "Not specified", ""
+    for line in raw_text.split("\n"):
+        low = line.lower()
+        if not any(k in low for k in ("qualification", "education requirement",
+                                      "degree", "eligibility", "must be a",
+                                      "should be a")):
+            continue
+        m = _EDU_LINE_RE.search(line)
+        if not m:
+            continue
+        level = extract_education(m.group(0))
+        if level and level != "Not specified":
+            return level, line.strip()[:200]
+    return "Not specified", ""
 
 
 def extract_key_points(raw_text, keywords=("responsib", "requirement", "qualific", "must have",
@@ -200,18 +264,20 @@ def parse_jd_text(jd_text):
     must_text, nice_text = split_jd_sections(raw)
     must_have = extract_required_skills_from_jd(must_text) if must_text else []
     nice_to_have = extract_required_skills_from_jd(nice_text) if nice_text else []
-    # If no explicit sections found, every skill counts as core (must).
-    if not must_text and not nice_text:
-        must_have = list(skills)
+    # NOTE: no "if no sections then everything is core" fallback. A JD without a
+    # recognised required/preferred header produces NO must-have list, because
+    # assuming every mentioned technology is mandatory is how unrelated stacks
+    # (e.g. ASP.NET on a Java role) became must-haves.
     skill_weights = build_skill_weights(raw, must_have, nice_to_have, skill_counts)
     try:
         by_cat = extract_skills_with_categories(raw)
     except Exception:
         by_cat = {}
     min_exp = extract_min_experience(raw)
-    education = extract_education(raw)
+    edu_required, edu_source = extract_education_requirement(raw)
     title = extract_job_title(raw)
     points = extract_key_points(raw)
+    line_pages = _jd_line_pages(raw)
     return {
         "job_title": title,
         "job_description": raw[:10000],
@@ -221,11 +287,20 @@ def parse_jd_text(jd_text):
         "skill_weights": skill_weights,
         "must_have_skills": must_have,
         "nice_to_have_skills": nice_to_have,
+        "must_text": must_text[:4000],
+        "nice_text": nice_text[:4000],
         "skills_by_category": by_cat,
         "min_experience": min_exp,
-        "education_required": education,
+        # "Not specified" when the JD states no degree rule — never inferred
+        # from a stray keyword such as "certificate" in an unrelated line.
+        "education_required": edu_required,
+        "education_source_text": edu_source,
+        "line_pages": line_pages,
+        "default_page": 1,
+        "page_count": max(line_pages) if line_pages else 1,
         "key_points": points,
-        "summary": summarize_jd(title, skills, min_exp, education, len(cleaned.split())),
+        "summary": summarize_jd(title, skills, min_exp, edu_required,
+                                len(cleaned.split())),
     }
 
 

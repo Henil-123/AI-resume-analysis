@@ -18,10 +18,10 @@ import time
 
 try:
     from services import job_matcher as _jm
-    from services.skill_aliases import normalize_skill
+    from services.skill_aliases import normalize_skill, domain_covers
 except ImportError:
     import job_matcher as _jm
-    from skill_aliases import normalize_skill
+    from skill_aliases import normalize_skill, domain_covers
 
 import yaml as _yaml
 
@@ -68,6 +68,12 @@ def score_keyword(requirement, resume_skills, fuzzy_hits=None, cfg=None):
     resume_set = {normalize_skill(s) for s in (resume_skills or [])}
     if canon in resume_set:
         return kw.get("exact", 1.0), "explicit match"
+    # A concrete technology satisfies a generic requirement (MySQL -> SQL),
+    # credited at the fuzzy level so it never outranks a direct mention.
+    domain_hits = sorted(s for s in resume_set if domain_covers(canon, s))
+    if domain_hits and canon:
+        return kw.get("fuzzy_skill", 0.7), (
+            f"domain match ({', '.join(domain_hits[:3])} implements {canon})")
     if fuzzy_hits and canon in fuzzy_hits:
         info = fuzzy_hits[canon]
         if info.get("via") == "raw_text":
@@ -83,6 +89,32 @@ def transform_cosine(raw, cfg=None):
     if name == "clip01":
         return round(max(0.0, min(1.0, float(raw))), 4), "clip01(max(0,cos))"
     return round(max(0.0, min(1.0, float(raw))), 4), name
+
+
+def semantic_band(normalized, cfg=None):
+    """Calibrated descriptor for a normalized semantic score.
+
+    A cosine similarity is NOT a probability or a proficiency percentage, so it
+    is reported with a qualitative band rather than as a bare percentage.
+    Thresholds come from scoring_config.yaml (semantic.*_threshold).
+    """
+    cfg = cfg or get_config()
+    sem = cfg.get("semantic", {}) or {}
+    strong = sem.get("strong_threshold", 0.75)
+    moderate = sem.get("moderate_threshold", 0.50)
+    weak = sem.get("weak_threshold", 0.25)
+    v = float(normalized or 0.0)
+    if v >= strong:
+        band = "strong"
+    elif v >= moderate:
+        band = "moderate"
+    elif v >= weak:
+        band = "weak"
+    else:
+        band = "minimal"
+    return {"band": band, "thresholds": {"strong": strong, "moderate": moderate,
+                                         "weak": weak},
+            "interpretation": "cosine similarity band, not a probability"}
 
 
 def score_semantic(requirement, evidence_records, resume_text, cfg=None):
@@ -127,6 +159,9 @@ def score_semantic(requirement, evidence_records, resume_text, cfg=None):
         return {"raw_cosine": round(best_raw, 4), "normalized": norm,
                 "transform": tname, "matched_passage": batch[j][:500],
                 "basis": "skill-evidence", "candidates_scored": len(batch),
+                "evidence_ids": [e.get("evidence_id") for e in cands[:16]
+                                 if (e.get("original_text") or "")[:2000] == batch[j]],
+                "band": semantic_band(norm, cfg)["band"],
                 "model": model_name, "embedding_dim": int(q.shape[1])}
     except Exception as e:
         return {"raw_cosine": 0.0, "normalized": 0.0, "matched_passage": "",
@@ -188,14 +223,23 @@ def score_requirement(requirement, resume_skills, evidence_records, resume_text,
         "category": requirement.get("category"),
         "canonical_skill": requirement.get("canonical_skill"),
         "importance_weight": requirement.get("importance_weight", 3),
+        "weight_source": requirement.get("weight_source", "inferred"),
+        "classification": requirement.get("classification"),
+        "requirement_type": requirement.get("requirement_type", "technical_skill"),
         "mandatory": requirement.get("mandatory", False),
         "mandatory_source": requirement.get("mandatory_source", ""),
+        "mandatory_explicit": requirement.get("mandatory_explicit", False),
         "weight_inferred": requirement.get("weight_inferred", False),
+        "weight_reason": requirement.get("weight_reason", ""),
         "keyword_match": k, "keyword_note": k_why,
         "raw_cosine": sem.get("raw_cosine"),
+        "raw_cosine_note": "cosine similarity in [-1,1]; not a probability",
         "semantic_score": m,
+        "semantic_band": sem.get("band"),
         "semantic_basis": sem.get("basis"),
         "semantic_transform": sem.get("transform"),
+        "semantic_candidates_scored": sem.get("candidates_scored"),
+        "semantic_evidence_ids": sem.get("evidence_ids"),
         "semantic_model": sem.get("model"),
         "semantic_error": sem.get("error"),
         "evidence_strength": p, "evidence_note": p_why,
@@ -212,29 +256,35 @@ def score_requirement(requirement, resume_skills, evidence_records, resume_text,
     }
 
 
-def _experience_fit(actual_years, required_years, cfg=None):
+def _experience_fit(actual_years, required_years, cfg=None, profile=None):
     """Experience-fit score + its inputs (E) and the reasoning behind it.
 
-    Trainee/internship policies are honoured: an internship or student project
-    is real experience, not zero. Confidence is reported so the UI can
-    distinguish "no experience" from "experience not detected".
+    Professional and project experience stay separate: a 2-month internship is
+    professional experience, a university project is not. Confidence is reported
+    so the UI can distinguish "no experience" from "experience not detected".
     """
     cfg = cfg or get_config()
     exp_cfg = cfg.get("experience", {}) or {}
     score = _jm.calculate_experience_score(actual_years or 0, required_years or 0)
+    detail = dict(profile or {})
     detected = bool(actual_years)
     return float(score), {
         "actual_years": actual_years,
         "required_years": required_years,
         "score": float(score),
         "detected": detected,
-        "confidence": "high" if actual_years and actual_years >= 1 else
-                      ("low" if actual_years else "none"),
+        "confidence": detail.get("confidence", "none"),
+        "basis": detail.get("basis", ""),
         "trainee_friendly": bool(exp_cfg.get("trainee_friendly", True)),
-        "note": ("Explicit duration/date evidence found in resume."
-                 if detected else
-                 "No professional-experience duration detected in the resume "
-                 "(missing data is not proof of zero experience)."),
+        # Professional vs project experience stay separate in the report.
+        "professional_years": detail.get("professional_years", actual_years),
+        "project_years": detail.get("project_years", 0.0),
+        "education_years": detail.get("education_years", 0.0),
+        "employment_section_found": detail.get("employment_section_found"),
+        "roles": detail.get("roles", [])[:5],
+        "evidence": detail.get("evidence", []),
+        "unverifiable": detail.get("unverifiable", []),
+        "note": detail.get("note", ""),
     }
 
 
@@ -259,13 +309,14 @@ def aggregate(requirement_scores, experience_score, cfg=None,
     K = 100 * sum(r["importance_weight"] * r["keyword_match"] for r in requirement_scores) / tot_w
     M = 100 * sum(r["importance_weight"] * r["semantic_score"] for r in requirement_scores) / tot_w
     E = float(experience_score)
-    # Blend unrounded, round once at the end so the published value always
-    # matches what the documented formula yields from the published inputs.
+    # Blend at FULL precision. Rounding the components before blending made the
+    # headline disagree with the displayed breakdown (59.3 vs 59.44).
     S = wk * K + wm * M + we * E
     req_w = sum(r["importance_weight"] * r["requirement_score"] for r in requirement_scores) / tot_w
     matched = sum(1 for r in requirement_scores if r["keyword_match"] >= 1.0)
     return {
         "status": "ok",
+        # Presentation values (rounded for display only).
         "keyword_coverage": round(K, 1),
         "semantic_relevance": round(M, 1),
         "experience_fit": round(E, 1),
@@ -280,12 +331,20 @@ def aggregate(requirement_scores, experience_score, cfg=None,
         "formula_version": FORMULA_VERSION,
         "config_version": cfg.get("config_version"),
         "weights": {"keyword": wk, "semantic": wm, "experience": we},
-        # Exact formula inputs, so any reader can re-derive overall_score.
+        # Exact, unrounded formula inputs: S = w_k*K + w_m*M + w_e*E reproduces
+        # `overall_score` exactly, with no rounding discrepancy.
         "formula_inputs": {
-            "K": round(K, 1), "M": round(M, 1), "E": round(E, 1),
+            "K": K, "M": M, "E": E, "overall_exact": S,
             "w_keyword": wk, "w_semantic": wm, "w_experience": we,
             "requirement_count": len(requirement_scores),
             "total_weight": tot_w,
+        },
+        "rounding": {
+            "applied_at": "presentation only",
+            "dp": 1,
+            "note": "Components and S are computed at full precision. Displayed "
+                    "values are rounded to 1 dp; rounding never feeds back into "
+                    "the calculation.",
         },
         "experience_detail": experience_detail or {},
     }
@@ -293,7 +352,7 @@ def aggregate(requirement_scores, experience_score, cfg=None,
 
 def analyze(requirements, resume_skills, evidence_records, resume_text,
             experience_years, required_experience, fuzzy_hits=None, cfg=None,
-            weights_override=None):
+            weights_override=None, experience_profile=None):
     """Full pipeline: per-requirement scores + aggregate + audit stub."""
     cfg = dict(cfg or get_config())
     if weights_override:
@@ -317,7 +376,8 @@ def analyze(requirements, resume_skills, evidence_records, resume_text,
     req_scores = [score_requirement(r, resume_skills, evidence_records, resume_text,
                                     fuzzy_hits, cfg) for r in (requirements or [])]
     exp_score, exp_detail = _experience_fit(experience_years or 0,
-                                            required_experience or 0, cfg)
+                                            required_experience or 0, cfg,
+                                            profile=experience_profile)
     agg = aggregate(req_scores, exp_score, cfg, experience_detail=exp_detail)
     if agg.get("status") != "ok":
         return {"status": agg["status"], "reason": agg.get("reason"),

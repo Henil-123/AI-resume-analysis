@@ -505,10 +505,10 @@ function explainSections(c) {
   }
   const rows = (x.requirement_scores || []).map(r => `<tr>
     <td><b>${esc(r.name)}</b>${r.mandatory ? ` <span class="pill pill-red" title="${esc(r.mandatory_source || '')}">must</span>` : (r.weight_inferred ? ' <span class="pill pill-orange" title="' + esc(r.weight_reason || '') + '">inferred</span>' : '')}<br/><span class="req-src">${esc((r.resume_evidence || 'no evidence found').slice(0, 140))}${r.evidence_section ? ' — ' + esc(r.evidence_section) : ''}</span></td>
-    <td style="text-align:center">${r.importance_weight}</td>
+    <td style="text-align:center">${r.importance_weight}${r.weight_source ? `<br/><span class="req-src">${esc(r.weight_source)}</span>` : ''}</td>
     <td style="text-align:center">${r.keyword_match}</td>
-    <td style="text-align:center">${r.raw_cosine == null ? '—' : r.raw_cosine}</td>
-    <td style="text-align:center">${r.semantic_score}${r.semantic_basis === 'no-evidence' ? '<br/><span class="req-src">no evidence</span>' : ''}</td>
+    <td style="text-align:center" title="Cosine similarity in [-1,1]. Not a probability or proficiency percentage.">${r.raw_cosine == null ? '—' : r.raw_cosine}<br/><span class="req-src">cosine</span></td>
+    <td style="text-align:center">${r.semantic_score}${r.semantic_band ? `<br/><span class="req-src">${esc(r.semantic_band)}</span>` : ''}${r.semantic_basis === 'no-evidence' ? '<br/><span class="req-src">no evidence</span>' : ''}</td>
     <td style="text-align:center">${r.evidence_strength}</td>
     <td style="text-align:center"><b>${r.requirement_score}%</b></td>
     <td>${reqStatusPill(r.status)}</td>
@@ -522,15 +522,41 @@ function explainSections(c) {
   const a = x.aggregate || {};
   const fi = a.formula_inputs || {};
   const ed = a.experience_detail || {};
+  const elig = x.eligibility || {};
+  const gaps = elig.skill_gaps || [];
   return `
     <div class="detail-section">
       <div class="ds-title">How This Score Was Calculated</div>
-      <div class="summary-text">Primary <b>${esc(a.formula || 'S=0.60*K+0.30*M+0.10*E')} = ${a.overall_score ?? '—'}%</b>
-        (keyword ${a.keyword_coverage ?? '—'}% · semantic ${a.semantic_relevance ?? '—'}% · experience ${a.experience_fit ?? '—'}%).
-        ${fi.requirement_count ? `Computed from ${fi.requirement_count} requirements (total weight ${fi.total_weight}). ` : ''}
-        Diagnostic requirement-weighted score: <b>${a.requirement_weighted_score ?? '—'}%</b>.
-        ${ed.note ? `<br/><span class="req-src">Experience: ${esc(ed.actual_years ?? 0)}y detected vs ${esc(ed.required_years ?? 0)}y required — ${esc(ed.note)}</span>` : ''}
-        ${esc(a.formula_version || '')} · config ${esc(a.config_version || '')}.</div>
+      <div class="summary-text">
+        <b>Overall ${a.overall_score ?? '—'}%</b> = ${esc(a.formula || 'S=0.60*K+0.30*M+0.10*E')}
+        <br/>Keyword (K) <b>${a.keyword_coverage ?? '—'}%</b> ·
+        Semantic (M) <b>${a.semantic_relevance ?? '—'}%</b> ·
+        Experience fit (E) <b>${a.experience_fit ?? '—'}%</b>
+        <br/>Diagnostic requirement-weighted score: <b>${a.requirement_weighted_score ?? '—'}%</b> (not the headline)
+        ${fi.requirement_count ? `<br/><span class="req-src">From ${fi.requirement_count} requirements, total weight ${fi.total_weight}. Computed at full precision; rounded to 1 dp for display.</span>` : ''}
+        <br/><span class="req-src">${esc(a.formula_version || '')} · config ${esc(a.config_version || '')}</span>
+      </div>
+    </div>
+    <div class="detail-section">
+      <div class="ds-title">Verified Experience</div>
+      <div class="summary-text">
+        Professional <b>${esc(ed.professional_years ?? 0)}y</b> ·
+        Projects <b>${esc(ed.project_years ?? 0)}y</b> ·
+        Education <b>${esc(ed.education_years ?? 0)}y</b> (excluded from professional)
+        <br/><span class="req-src">Confidence: ${esc(ed.confidence || 'none')}. ${esc(ed.basis || '')}</span>
+        ${ed.note ? `<br/><span class="req-src">${esc(ed.note)}</span>` : ''}
+        ${(ed.evidence || []).length ? `<br/><span class="req-src">Evidence: ${esc((ed.evidence || []).join(' | '))}</span>` : ''}
+        ${(ed.unverifiable || []).length ? `<br/><span class="req-src">Unverifiable: ${esc((ed.unverifiable || []).map(u => u.reason).join(' | '))}</span>` : ''}
+      </div>
+    </div>
+    <div class="detail-section">
+      <div class="ds-title">Eligibility</div>
+      <div class="summary-text">
+        <b>${esc(elig.overall || 'UNKNOWN')}</b>
+        <br/><span class="req-src">${esc(elig.note || '')}</span>
+        ${(elig.criteria || []).map(cr => `<br/>• ${esc(cr.criterion)} — <b>${esc(cr.status)}</b><br/><span class="req-src">${esc(cr.detail || '')}${cr.source ? ' [source: ' + esc(cr.source) + ']' : ''}</span>`).join('')}
+        ${gaps.length ? `<br/><span class="req-src">Skill gaps (affect score, not eligibility): ${esc(gaps.map(g => g.skill).join(', '))}</span>` : ''}
+      </div>
     </div>
     <div class="detail-section">
       <div class="ds-title">Eligibility ${eligBadge(x.eligibility?.overall)}</div>
@@ -556,13 +582,47 @@ function explainSections(c) {
         <button class="btn-sm" onclick="recalculate('${c.id}')">Recalculate</button>
         <button class="btn-sm" onclick="downloadReport('${c.id}')">Report JSON</button>
       </div>
-      <div class="req-src">Weights must sum to 1.0. Recalculation needs the live backend session that ran the analysis.</div>
+      <div class="req-src" id="rw-status-${c.id}">Weights must total 1.0 (0.6 + 0.3 + 0.1 is accepted).</div>
     </div>`;
 }
+
+// Live weight validation. The previous build showed a static "must sum to 1.0"
+// warning even when the values were valid, which read as a failure.
+// Tolerance is 1e-6 because 0.6+0.3+0.1 is 0.9999999999999999 in IEEE-754.
+function validateWeights() {
+  const k = parseFloat(document.getElementById('rw-k')?.value);
+  const m = parseFloat(document.getElementById('rw-m')?.value);
+  const e = parseFloat(document.getElementById('rw-e')?.value);
+  const vals = { keyword: k, semantic: m, experience: e };
+  for (const key of Object.keys(vals)) {
+    if (!Number.isFinite(vals[key])) {
+      return { ok: false, message: `Weight "${key}" must be a number.` };
+    }
+    if (vals[key] < 0 || vals[key] > 1) {
+      return { ok: false, message: `Weight "${key}" must be between 0 and 1 (got ${vals[key]}).` };
+    }
+  }
+  const total = k + m + e;
+  if (Math.abs(total - 1.0) > 1e-6) {
+    return { ok: false, message: `Weights total ${total.toFixed(4)}, not 1.0. Adjust them so they total 1.0.` };
+  }
+  return { ok: true, message: `Weights total ${total.toFixed(4)} — valid.`, weights: vals };
+}
+
+function renderWeightStatus(id) {
+  const v = validateWeights();
+  const el = document.getElementById('rw-status-' + id);
+  if (el) {
+    el.textContent = v.message;
+    el.style.color = v.ok ? 'var(--green, #16a34a)' : 'var(--red, #dc2626)';
+  }
+  return v;
+}
+
 async function recalculate(id) {
-  const k = parseFloat(document.getElementById('rw-k')?.value || '0.6');
-  const m = parseFloat(document.getElementById('rw-m')?.value || '0.3');
-  const e = parseFloat(document.getElementById('rw-e')?.value || '0.1');
+  const v = validateWeights();
+  if (!v.ok) { toast(v.message, 'error'); return; }
+  const { keyword: k, semantic: m, experience: e } = v.weights;
   try {
     const r = await fetch(API + '/api/v1/analyses/' + id + '/recalculate', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -575,12 +635,42 @@ async function recalculate(id) {
       c.explainable.requirement_scores = body.requirements;
       c.explainable.aggregate = body.aggregate;
       c.explainable.report = body.report;
+      // Keep the headline identical to the recalculated aggregate so the
+      // card, the panel and the export cannot disagree.
+      c.final_score = body.aggregate.overall_score;
+      c.score_breakdown = {
+        ...(c.score_breakdown || {}),
+        keyword_score: body.aggregate.keyword_coverage,
+        semantic_score: body.aggregate.semantic_relevance,
+        experience_score: body.aggregate.experience_fit,
+        requirement_weighted_score: body.aggregate.requirement_weighted_score,
+        formula: body.aggregate.formula,
+        formula_version: body.aggregate.formula_version,
+        config_version: body.aggregate.config_version,
+        weights: body.aggregate.weights,
+        formula_inputs: body.aggregate.formula_inputs
+      };
       renderDetail(c);
+      renderCards();
     }
     toast(`Recalculated overall: ${body.aggregate.overall_score}%`, 'success');
   } catch (err) { toast('Recalculation failed.', 'error'); }
 }
 function downloadReport(id) {
+  // Prefer the in-memory report so the download never depends on a live
+  // session; the API endpoint is the fallback.
+  const c = allCands.find(x => x.id === id);
+  if (c && c.report) {
+    const blob = new Blob([JSON.stringify(c.report, null, 2)],
+      { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `screening-report-${id}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    return;
+  }
   window.open(API + '/api/v1/analyses/' + id + '/report?format=json', '_blank');
 }
 

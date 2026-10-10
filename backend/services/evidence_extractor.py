@@ -8,10 +8,10 @@ import re
 
 try:
     from services.skill_aliases import normalize_skill
-    from services.section_parser import parse_resume_sections
+    from services.section_parser import parse_resume_sections_indexed
 except ImportError:
     from skill_aliases import normalize_skill
-    from section_parser import parse_resume_sections
+    from section_parser import parse_resume_sections_indexed
 
 NEGATION_RE = re.compile(r"\b(no|not|never|without|n't|lack(?:s|ing)?|unfamiliar)\b", re.I)
 PLANNED_RE = re.compile(r"\b(will|plan(?:ning|s)? to|going to|aspir(?:ing|ation)|to learn|currently learning|familiar with|exposure to)\b", re.I)
@@ -33,10 +33,50 @@ SECTION_TO_EVIDENCE = {
 
 
 def _split_sentences(text):
+    """Split a section into sentences/bullets.
+
+    Only sentence-TERMINATING punctuation splits. Splitting on hyphens
+    destroyed hyphenated words: "full-stack" became a break, silently
+    dropping "Built a full-stack web application using React..." and the
+    Java evidence it carried.
+    """
     sents = []
     for line in (text or "").split("\n"):
-        sents.extend(s.strip() for s in re.split(r"(?<=[.!?•\-])\s+", line) if len(s.strip()) > 8)
+        stripped = line.strip()
+        if not stripped:
+            continue
+        # Bullets keep their whole line (they are the semantic unit).
+        if stripped[:1] in ("-", "*", "\u2022", "\u25cf"):
+            sents.append(stripped.lstrip("-*\u2022\u25cf ").strip())
+            continue
+        sents.extend(s.strip() for s in re.split(r"(?<=[.!?])\s+", stripped)
+                     if len(s.strip()) > 8)
     return sents
+
+
+def _mentions(low_sentence, canon):
+    """Does this sentence mention the skill (directly, or via a concrete impl)?
+
+    Short tokens are matched on WORD BOUNDARIES only: a naive substring test
+    made the single letter "c" match inside "JavaScript"/"CSS", inventing
+    evidence for a skill the resume never claims.
+    """
+    spaced = canon.replace("_", " ")
+    if len(canon) <= 2 or " " not in spaced:
+        # 1-2 char token ("c", "go", "r"): require a real word match.
+        if re.search(r"\b" + re.escape(canon) + r"\b", low_sentence):
+            return True
+    elif spaced in low_sentence:
+        return True
+    elif re.search(r"\b" + re.escape(canon) + r"\b", low_sentence):
+        return True
+    # "SQL" is satisfied by an engine the sentence names (MySQL, PostgreSQL).
+    if canon == "sql":
+        for engine in ("mysql", "postgresql", "sql server", "sqlite",
+                       "mariadb", "oracle"):
+            if engine in low_sentence:
+                return True
+    return False
 
 
 def _page_for_offset(pages, char_offset):
@@ -69,24 +109,19 @@ def extract_evidence(parsed_resume, skills=None):
             skills = extract_skills(clean_text(raw))
         except Exception:
             skills = []
-    sections = parse_resume_sections(raw)
-    # char offsets per section for page mapping
-    offsets, cursor = {}, 0
-    lowered_raw = raw.lower()
-    for sec, body in sections.items():
-        idx = lowered_raw.find(body.lower()[:60]) if body else -1
-        offsets[sec] = idx if idx >= 0 else None
+    sections, offsets = parse_resume_sections_indexed(raw)
 
     records, seen_passages, n = [], set(), 0
     for section, body in sections.items():
+        if section == "header":
+            # Contact/identity block: keep, but never let it prove a skill.
+            pass
         for sent in _split_sentences(body):
             low = sent.lower()
             for skill in skills or []:
                 canon = normalize_skill(skill)
-                if canon not in low and canon.replace("_", " ") not in low and canon.replace(" ", "") not in low:
-                    # word-boundary phrase check for short acronyms
-                    if not re.search(r"\b" + re.escape(canon) + r"\b", low):
-                        continue
+                if not _mentions(low, canon):
+                    continue
                 n += 1
                 is_neg = bool(NEGATION_RE.search(" ".join(low.split()[:6])) and canon in low)
                 is_planned = bool(PLANNED_RE.search(low))
@@ -100,14 +135,21 @@ def extract_evidence(parsed_resume, skills=None):
                     "evidence_id": f"evidence_{n:03d}",
                     "canonical_skill": canon,
                     "original_text": sent[:500],
+                    # Section is the TRUE detected section, and is preserved
+                    # verbatim (not re-labelled from the sentence content).
                     "section": section.title() if section else "Other",
+                    "section_key": section or "other",
                     "project_name": None,
                     "page_number": _page_for_offset(pages, offsets.get(section)),
                     "evidence_type": etype,
+                    # Distinguishes a bare skills-list mention from a
+                    # demonstrated implementation (drives the P_i rubric).
+                    "is_skill_list": section in ("skills", "summary", "header"),
                     "polarity": "negative" if is_neg else "positive",
                     "is_negated": is_neg,
                     "is_planned": is_planned,
                     "is_duplicate": dup,
+                    "source_document": (parsed_resume or {}).get("source_document"),
                     "source_start": None,
                     "source_end": None,
                 })

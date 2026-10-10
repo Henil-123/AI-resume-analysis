@@ -67,13 +67,17 @@ def test_legacy_score_retained_but_not_headlined():
 
 def test_formula_inputs_are_recorded():
     _, b = _post()
-    fi = b["explainable"]["aggregate"]["formula_inputs"]
+    agg = b["explainable"]["aggregate"]
+    fi = agg["formula_inputs"]
     for k in ("K", "M", "E", "w_keyword", "w_semantic", "w_experience",
-              "requirement_count", "total_weight"):
+              "requirement_count", "total_weight", "overall_exact"):
         assert k in fi
-    assert fi["K"] == b["explainable"]["aggregate"]["keyword_coverage"]
-    assert fi["M"] == b["explainable"]["aggregate"]["semantic_relevance"]
-    assert fi["E"] == b["explainable"]["aggregate"]["experience_fit"]
+    # formula_inputs carry FULL precision; the display fields are rounded.
+    # Recomputing S from the exact inputs must reproduce the headline exactly.
+    exact = (fi["w_keyword"] * fi["K"] + fi["w_semantic"] * fi["M"]
+             + fi["w_experience"] * fi["E"])
+    assert abs(exact - fi["overall_exact"]) < 1e-9
+    assert round(fi["overall_exact"], 1) == agg["overall_score"]
 
 
 def test_config_version_recorded_everywhere():
@@ -118,11 +122,17 @@ def test_two_month_internship_is_detected():
 
 
 def test_date_range_survives_text_cleaning():
-    # clean_text strips punctuation ("2022-Present" -> "2022 present"), which
-    # previously zeroed every date-derived experience signal.
+    # A hyphenated "2022-Present" must still parse after punctuation stripping.
+    # The extractor itself runs on RAW text (section headers require newlines);
+    # cleaned text is checked only for the punctuation-tolerant range parsing.
     from services.resume_parser import clean_text
-    cleaned = clean_text("Senior Java Developer, ABC Corp 2022-Present.")
-    assert extract_experience_years(cleaned) >= 3.0
+    from services.experience_extractor import _parse_ranges
+    raw = ("WORK EXPERIENCE\nSenior Java Developer, ABC Corp 2022-Present\n"
+           "Built and deployed services.\n")
+    assert extract_experience_years(raw) >= 3.0
+    # Both the hyphenated and the cleaned ("2022 present") forms are recognised.
+    assert _parse_ranges("Senior Java Developer 2022-Present")
+    assert _parse_ranges(clean_text("Senior Java Developer 2022-Present."))
 
 
 def test_professional_experience_detected_end_to_end():
@@ -164,7 +174,8 @@ def test_missing_experience_is_reported_as_missing_not_zero_years():
     _, b = _post(resume="Jane Doe\nSkills: Java\nProjects: demo app\n")
     ed = b["explainable"]["aggregate"]["experience_detail"]
     assert ed["detected"] is False
-    assert "not proof of zero" in ed["note"]
+    assert "unknown, not a claim of zero" in ed["note"]
+    assert ed["confidence"] == "none"
 
 
 # ── R4: section attribution ────────────────────────────────────────────

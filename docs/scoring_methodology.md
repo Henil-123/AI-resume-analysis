@@ -17,11 +17,18 @@ R_i = 100 * (0.35*K_i + 0.35*M_i + 0.30*P_i)
   (`go` does not match `django`; `c` does not match `c++`).
 - **M_i (semantic)**: `M = max(0, cosine(u, v))` (`clip01` transform) where `u`
   is the requirement embedding and `v` the best resume-evidence embedding.
-  Both raw cosine and normalized M are reported per requirement.
+  **Raw cosine and normalized M are stored separately**: `raw_cosine` (a
+  similarity in [-1,1], explicitly labelled "not a probability") and
+  `semantic_score` (the [0,1] value used in the formula). A qualitative
+  `semantic_band` (strong/moderate/weak/minimal, thresholds from
+  `scoring_config.yaml`) accompanies them, because a cosine is not a
+  proficiency percentage.
   A requirement is compared **only against evidence passages that actually
-  mention that skill**. If the resume contains no such passage, `M_i = 0.0`
+  mention that skill**, selecting the best valid match across up to 16
+  candidate passages. If the resume contains no such passage, `M_i = 0.0`
   with `semantic_basis: "no-evidence"` — never a similarity borrowed from
   unrelated sentences in the resume.
+  Semantic scores are never inflated to raise the headline.
 - **P_i (evidence)**: 1.0 demonstrated implementation · 0.7 specific practical
   use · 0.3 mentioned only · 0.0 no evidence. Planned/aspirational work caps
   at 0.3; negated mentions score 0.0; duplicate passages never inflate
@@ -55,15 +62,53 @@ else `actual/required*100`. No JD bar: 100 if any experience found else 60.
 Trainee-friendly: professional years are never demanded unless the JD states
 them; academic/project work counts via evidence, not double-counted.
 
-Experience detection uses three signals: explicit "5+ years of experience",
-explicit durations attached to a role (including **months/weeks**, e.g.
-"Python Developer Intern (2 months)" = 0.17y), and date ranges
-("2022-Present", "2019 - 2023"). Date parsing tolerates punctuation-stripped
-text (`clean_text` turns "2022-Present" into "2022 present"). Only professional
-roles and internships count; personal/academic projects are reported as
-project evidence, never as professional tenure. Every result carries an
-`experience_detail` block with the signal used and a confidence level — a
-missing duration is reported as **not detected**, never as zero experience.
+### Professional vs project experience
+
+Experience is extracted by `services/experience_extractor.py` from **section
+context**, never from a text-wide date scan. Only sections recognised as
+employment (Work Experience / Internship Experience / Employment) contribute
+professional years. Project and education periods are extracted separately and
+reported as `project_years` and `education_years`.
+
+This distinction matters: a resume listing `2021 - 2025` for a degree and
+`2024 - 2025` for a project previously produced "4 years of professional
+experience" for a candidate whose only employment was a two-month internship.
+
+Rules:
+- Date ranges are merged as **month intervals**, so overlapping or nested
+  roles are never double counted.
+- Month precision is honoured ("June 2025 - August 2025" = 2 months).
+- A start date with no end date and no "present/current" marker is reported
+  in `unverifiable` — the end date is **never invented**.
+- Without a recognisable employment section, bare date ranges are NOT
+  attributed to employment (they may be a degree or a personal project);
+  only explicit statements ("3+ years of experience", "2 months") are used.
+- When nothing can be verified the result is an explicit **unknown**
+  (`confidence: "none"`), never a claim of zero experience.
+
+## Eligibility
+
+Eligibility is evaluated strictly separately from compatibility scoring.
+
+`VERIFIED_INELIGIBLE` requires an explicit, source-backed JD rule (degree
+minimum, graduation batch, active backlogs) that is demonstrably violated.
+**A missing skill is never an eligibility failure** — it is recorded in
+`skill_gaps` and affects only the score. Every criterion carries `detail`,
+`source` and `rule`. Absent information yields `UNKNOWN`.
+
+If the JD states no rule at all, the result is `UNKNOWN`; no rule (such as a
+Diploma/Certificate bar) is ever invented.
+
+## Precision and rounding
+
+Components and the primary score are computed at **full precision**.
+`formula_inputs` stores the exact `K`, `M`, `E` and `overall_exact`, so
+
+    w_keyword*K + w_semantic*M + w_experience*E == overall_exact
+
+holds to floating-point precision. Rounding to 1 decimal place happens only in
+the presentation layer (`keyword_coverage`, `overall_score`, ...). The headline
+cannot disagree with the formula applied to the published inputs.
 
 ## Authoritative score (single source of truth)
 
@@ -73,21 +118,42 @@ read those same stored values — no component recomputes it independently.
 The legacy 45/30/15/10 blend (with must-have gate) is still computed and
 exposed as `legacy_final_score` for comparison, but it is never headlined.
 
+`requirement_weighted_score` is a **diagnostic only** and is labelled as such;
+it is never the headline.
+
 Each result records `formula_version`, `config_version` and `formula_inputs`
-(`K`, `M`, `E`, weights, requirement count, total weight), plus per-requirement
-`formula_inputs` (`K`, `M`, `P` and the three weights), so every published
-number can be re-derived from the published inputs.
+(`K`, `M`, `E`, `overall_exact`, weights, requirement count, total weight),
+plus per-requirement `formula_inputs` (`K`, `M`, `P` and the three weights),
+so every published number can be re-derived from the published inputs.
 
-## Mandatory vs inferred
+## Requirement classification
 
-`mandatory` is true **only** when the JD explicitly requires the skill (it
-appears under a detected required/must-have section, or carries mandatory
-wording on its own line). `mandatory_explicit` records which. Every other
-requirement is a non-mandatory inferred priority, labelled with its reason.
-A JD with unrecognised headings therefore produces no mandatory requirements
-rather than making all of them mandatory (which previously turned unrelated
-technologies into must-haves). Inferred priorities never cause an eligibility
-failure.
+Every requirement carries a `classification`:
+
+| classification | mandatory? | effect |
+|---|---|---|
+| `explicit_mandatory` | yes | listed under a detected required/must-have section, or with mandatory wording |
+| `required_learning_outcome` | no | awareness-level ("exposure to", "familiarity with") |
+| `preferred` | no | listed under preferred/nice-to-have |
+| `behavioural_competency` | no | communication, teamwork, leadership |
+| `inferred_priority` | no | inferred from mention frequency only |
+
+`weight_source` records whether the importance weight was **explicit** in the
+JD or **inferred**. An inferred requirement is never described as explicitly
+mandatory. Equivalent skills are collapsed into one requirement so a single
+capability is not double counted.
+
+Section detection stops at breaker headers (education, eligibility, a new role
+block), so a second role's skills in the same JD (e.g. a `.NET` track under a
+Java role) are never attributed to the selected role.
+
+## Domain matches
+
+A concrete technology satisfies a **generic** requirement (`mysql` satisfies
+`SQL`), credited at the fuzzy level with an explicit note. The relation is
+one-way: `sql` does **not** satisfy `mysql`. Implemented in
+`skill_aliases.domain_covers`; deliberately not an alias map, because collapsing
+`mysql` -> `sql` would let a MySQL resume satisfy a PostgreSQL requirement.
 
 ## Eligibility (separate from score)
 

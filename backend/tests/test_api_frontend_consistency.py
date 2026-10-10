@@ -34,7 +34,10 @@ def test_every_surfaced_value_agrees():
     assert b["final_score"] == s
     assert b["explainable"]["overall_score"] == s
     assert b["report"]["executive_summary"]["overall_score"] == s
-    assert b["score_breakdown"]["formula_inputs"]["K"] == agg["keyword_coverage"]
+    fi = b["score_breakdown"]["formula_inputs"]
+    # Exact inputs re-derive the headline; display fields are rounded.
+    assert round(fi["w_keyword"] * fi["K"] + fi["w_semantic"] * fi["M"]
+                 + fi["w_experience"] * fi["E"], 1) == s
 
     # breakdown values the UI renders
     bd = b["score_breakdown"]

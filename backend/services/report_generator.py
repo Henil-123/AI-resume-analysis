@@ -7,6 +7,19 @@ except ImportError:
     import job_matcher as _jm
 
 
+def _calibration_summary():
+    """Calibration status for the report. Never fabricates a validated claim."""
+    try:
+        from services.semantic_calibration import calibration_report
+        rep = calibration_report()
+    except Exception as e:
+        return {"available": False, "reason": str(e)[:160],
+                "disclaimer": "Calibration could not be evaluated."}
+    summary = {k: v for k, v in rep.items() if k != "cases"}
+    summary["cases_sampled"] = min(len(rep.get("cases") or []), 3)
+    return summary
+
+
 def analyze_gaps(requirement_scores):
     """Per-requirement gap records for low/uncertain scores."""
     gaps = []
@@ -151,6 +164,10 @@ def build_report(candidate, requirements, requirement_scores, aggregate,
             "weights": (aggregate or {}).get("weights"),
             "formula_inputs": (aggregate or {}).get("formula_inputs"),
             "semantic_model": (aggregate or {}).get("semantic_model"),
+            "semantic_model_meta": (aggregate or {}).get("semantic_model_meta"),
+            # Calibration status is reported honestly: the shipped seed set is
+            # small and hand-written, so thresholds remain defaults.
+            "semantic_calibration": _calibration_summary(),
             "thresholds": {"matched": 70, "partial": 40},
             "extraction_status": extraction_status,
             "evidence_count": len(evidence_records or []),

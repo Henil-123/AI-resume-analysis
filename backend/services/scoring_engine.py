@@ -132,6 +132,11 @@ def score_semantic(requirement, evidence_records, resume_text, cfg=None):
     cfg = cfg or get_config()
     desc = requirement.get("description", "") or requirement.get("canonical_skill", "")
     model_name = _jm.get_embed_model_name()
+    # Record the exact text embedded and the model provenance (F.1/F.2).
+    try:
+        model_meta = _jm.get_embed_model_metadata()
+    except Exception:
+        model_meta = {"engine": None, "model": model_name}
     if not model_name:
         return {"raw_cosine": 0.0, "normalized": 0.0, "matched_passage": "",
                 "model": None, "basis": "model-unavailable",
@@ -158,6 +163,8 @@ def score_semantic(requirement, evidence_records, resume_text, cfg=None):
         norm, tname = transform_cosine(best_raw, cfg)
         return {"raw_cosine": round(best_raw, 4), "normalized": norm,
                 "transform": tname, "matched_passage": batch[j][:500],
+                "query_text": desc[:300],
+                "model_meta": model_meta,
                 "basis": "skill-evidence", "candidates_scored": len(batch),
                 "evidence_ids": [e.get("evidence_id") for e in cands[:16]
                                  if (e.get("original_text") or "")[:2000] == batch[j]],
@@ -241,6 +248,10 @@ def score_requirement(requirement, resume_skills, evidence_records, resume_text,
         "semantic_candidates_scored": sem.get("candidates_scored"),
         "semantic_evidence_ids": sem.get("evidence_ids"),
         "semantic_model": sem.get("model"),
+        # Full embedding provenance (engine, model id, library version, dim)
+        # so every semantic number is attributable to a specific model.
+        "semantic_model_meta": sem.get("model_meta"),
+        "semantic_query_text": sem.get("query_text"),
         "semantic_error": sem.get("error"),
         "evidence_strength": p, "evidence_note": p_why,
         "requirement_score": r, "status": status,

@@ -583,7 +583,119 @@ function explainSections(c) {
         <button class="btn-sm" onclick="downloadReport('${c.id}')">Report JSON</button>
       </div>
       <div class="req-src" id="rw-status-${c.id}">Weights must total 1.0 (0.6 + 0.3 + 0.1 is accepted).</div>
+    </div>
+    <div class="detail-section">
+      <div class="ds-title">Review Extracted Requirements</div>
+      <div class="req-src">Extraction is heuristic. Exclude a requirement the JD
+      does not actually demand, or correct a weight, then re-score. Every
+      change is recorded on the requirement.</div>
+      <div class="req-table-wrap" style="margin-top:6px"><table class="req-table">
+        <thead><tr><th>Requirement</th><th>Classification</th><th>Wt</th><th></th></tr></thead>
+        <tbody>${(x.requirement_scores || []).map(r => `
+          <tr>
+            <td>${esc(r.name)}</td>
+            <td><span class="req-src">${esc(r.classification || '—')}${r.mandatory ? ' · must' : ''}</span></td>
+            <td style="text-align:center">
+              <input type="number" id="rq-w-${c.id}-${esc(r.canonical_skill || r.name)}"
+                     value="${r.importance_weight}" min="1" max="5" step="1"
+                     style="width:52px"/>
+            </td>
+            <td><button class="btn-sm" onclick="reviewRequirement('${c.id}','${esc(r.canonical_skill || r.name)}', true)">Exclude</button></td>
+          </tr>`).join('')}
+        </tbody>
+      </table></div>
+      <div class="recalc-row" style="margin-top:6px">
+        <button class="btn-sm" onclick="applyRequirementReview('${c.id}')">Re-score with reviewed weights</button>
+        <button class="btn-sm" onclick="downloadReportPdf('${c.id}')">Report PDF</button>
+      </div>
+      <div class="req-src" id="rq-status-${c.id}"></div>
     </div>`;
+}
+
+// Apply reviewer weight corrections and re-score (C.8).
+async function applyRequirementReview(id) {
+  const c = allCands.find(x => x.id === id);
+  const el = document.getElementById('rq-status-' + id);
+  if (!c || !c.explainable) return;
+  const weights = {};
+  const exclude = [];
+  (c.explainable.requirement_scores || []).forEach(r => {
+    const key = r.canonical_skill || r.name;
+    const input = document.getElementById(`rq-w-${id}-${key}`);
+    if (input) {
+      const v = parseFloat(input.value);
+      if (Number.isFinite(v) && v !== r.importance_weight) weights[key] = v;
+    }
+    if (r.excluded) exclude.push(key);
+  });
+  if (!Object.keys(weights).length && !exclude.length) {
+    if (el) el.textContent = 'No changes to apply.';
+    return;
+  }
+  try {
+    const r = await fetch(API + '/api/v1/analyses/' + id + '/requirements', {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ weights, exclude, reviewed_by: 'reviewer', reason: 'frontend review' })
+    });
+    const body = await r.json();
+    if (!r.ok) { toast(body.error || 'Review failed.', 'error'); return; }
+    c.explainable.requirement_scores = body.requirements;
+    c.explainable.aggregate = body.aggregate;
+    c.explainable.eligibility = body.eligibility;
+    c.explainable.report = body.report;
+    c.final_score = body.aggregate.overall_score;
+    if (c.score_breakdown) {
+      c.score_breakdown.keyword_score = body.aggregate.keyword_coverage;
+      c.score_breakdown.semantic_score = body.aggregate.semantic_relevance;
+      c.score_breakdown.experience_score = body.aggregate.experience_fit;
+      c.score_breakdown.formula_inputs = body.aggregate.formula_inputs;
+      c.score_breakdown.formula = body.aggregate.formula;
+    }
+    if (el) el.textContent = `Applied ${body.changes.length} change(s); rescored to ${body.aggregate.overall_score}%.`;
+    renderDetail(c); renderCards();
+    toast(`Re-scored: ${body.aggregate.overall_score}%`, 'success');
+  } catch (e) { toast('Review failed.', 'error'); }
+}
+
+async function reviewRequirement(id, canon, exclude) {
+  try {
+    const r = await fetch(API + '/api/v1/analyses/' + id + '/requirements', {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ exclude: [canon], reviewed_by: 'reviewer',
+                              reason: 'not required by the selected role' })
+    });
+    const body = await r.json();
+    if (!r.ok) { toast(body.error || 'Review failed.', 'error'); return; }
+    const c = allCands.find(x => x.id === id);
+    if (c) {
+      c.explainable.requirement_scores = body.requirements;
+      c.explainable.aggregate = body.aggregate;
+      c.explainable.report = body.report;
+      c.final_score = body.aggregate.overall_score;
+      renderDetail(c); renderCards();
+    }
+    toast(`Excluded ${canon}; rescored to ${body.aggregate.overall_score}%.`, 'success');
+  } catch (e) { toast('Review failed.', 'error'); }
+}
+
+function downloadReportPdf(id) {
+  // Prefers the stored report so the PDF matches the on-screen canonical
+  // result even if the analysis session is gone.
+  const c = allCands.find(x => x.id === id);
+  if (c && c.report) {
+    fetch(API + '/api/v1/analyses/' + id + '/report?format=pdf')
+      .then(async r => {
+        if (!r.ok) throw new Error('pdf unavailable');
+        const blob = await r.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url; a.download = `screening-report-${id}.pdf`; a.click();
+        URL.revokeObjectURL(url);
+      })
+      .catch(() => { window.open(API + '/api/v1/analyses/' + id + '/report?format=pdf', '_blank'); });
+    return;
+  }
+  window.open(API + '/api/v1/analyses/' + id + '/report?format=pdf', '_blank');
 }
 
 // Live weight validation. The previous build showed a static "must sum to 1.0"

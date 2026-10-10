@@ -118,6 +118,32 @@ def _get_embed_model():
     raise RuntimeError(f"No embedding model available: {last_err}")
 
 
+def get_embed_model_metadata():
+    """Provenance for reproducibility: engine kind, model id and revision.
+
+    Spec F.1/F.2 require the exact embedding model and version behind every
+    semantic number. `sha` is the model identifier (a HuggingFace repo id or a
+    fixed tag for the light engine) plus, where available, the library
+    version, so a result can be tied to what produced it.
+    """
+    name = _EMBED_MODEL_NAME
+    if not name:
+        return {"engine": None, "model": None, "version": None, "dimension": None}
+    version = None
+    try:
+        import sentence_transformers as _st
+        version = getattr(_st, "__version__", None)
+    except Exception:
+        version = None
+    dim = None
+    try:
+        dim = int(_get_embed_model().encode(["dimension probe"]).shape[1])
+    except Exception:
+        pass
+    return {"engine": ("tfidf" if name == _TfidfEmbedder.NAME else "sentence-transformers"),
+            "model": name, "version": version, "dimension": dim}
+
+
 def get_embed_model_name():
     try:
         _get_embed_model()

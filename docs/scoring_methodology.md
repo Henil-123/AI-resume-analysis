@@ -29,6 +29,36 @@ R_i = 100 * (0.35*K_i + 0.35*M_i + 0.30*P_i)
   with `semantic_basis: "no-evidence"` — never a similarity borrowed from
   unrelated sentences in the resume.
   Semantic scores are never inflated to raise the headline.
+
+### Embedding provenance
+
+Every requirement row records `semantic_model_meta` (engine kind, model id,
+library version, embedding dimension) and `semantic_query_text` (the exact
+requirement text that was embedded), alongside `semantic_evidence_ids`. A
+semantic number can therefore be attributed to a specific model and input.
+
+### Calibration status (measured, not assumed)
+
+`services/semantic_calibration.py` holds a small hand-written seed set of
+`(requirement, passage, human label)` triples across `match` / `related` /
+`unrelated`. `calibration_report()` scores it and reports
+`ordering_match_ge_related_ge_unrelated`. The result is surfaced in
+`technical_audit.semantic_calibration`.
+
+**Measured results** (12 cases, group mean of normalized cosine):
+
+| engine | match | related | unrelated | ordering holds |
+|---|---|---|---|---|
+| `BAAI/bge-small-en-v1.5` | 0.7675 | 0.6558 | 0.5018 | yes |
+| `tfidf-cosine (light)` | 0.4310 | 0.0616 | 0.1929 | **no** |
+
+The light TF-IDF engine is lexical and does **not** separate `related` from
+`unrelated` reliably (an unrelated passage can outscore a related one). The
+report states this per analysis rather than asserting a pass.
+
+This seed set is a smoke test of band ordering and a regression guard, **not** a
+statistically validated calibration; the thresholds in `scoring_config.yaml`
+remain defaults. A larger human-labelled corpus is the outstanding work.
 - **P_i (evidence)**: 1.0 demonstrated implementation · 0.7 specific practical
   use · 0.3 mentioned only · 0.0 no evidence. Planned/aspirational work caps
   at 0.3; negated mentions score 0.0; duplicate passages never inflate
@@ -85,6 +115,25 @@ Rules:
   only explicit statements ("3+ years of experience", "2 months") are used.
 - When nothing can be verified the result is an explicit **unknown**
   (`confidence: "none"`), never a claim of zero experience.
+
+## Report surfaces
+
+The report exposes distinct sections and never recomputes a score:
+
+| surface | endpoint | source |
+|---|---|---|
+| JSON report | `GET /api/v1/analyses/<id>/report?format=json` | stored `report` |
+| PDF report | `GET /api/v1/analyses/<id>/report?format=pdf` | the same stored `report` |
+| requirements | `GET /api/v1/analyses/<id>/requirements` | stored `requirement_scores` |
+
+The PDF is rendered from the same stored report object
+(`services/pdf_report.py`), so it cannot disagree with the headline, the
+breakdown, the JSON export or the API. It covers the primary score, each
+component, the diagnostic requirement-weighted score, eligibility with
+per-criterion sources, verified professional vs project experience,
+direct/transferable/skill-list-only skills, missing and unverified skills,
+source-grounded recommendations, requirement-level detail with evidence
+sections and pages, and model/config metadata.
 
 ## Eligibility
 
@@ -146,6 +195,21 @@ capability is not double counted.
 Section detection stops at breaker headers (education, eligibility, a new role
 block), so a second role's skills in the same JD (e.g. a `.NET` track under a
 Java role) are never attributed to the selected role.
+
+### Manual review
+
+Extraction is heuristic, so `PATCH /api/v1/analyses/<id>/requirements` lets a
+reviewer correct the requirement set **before** the score is finalised:
+
+    {"exclude": ["asp.net"], "restore": ["kubernetes"],
+     "weights": {"java": 4}, "mandatory": {"react": true},
+     "reviewed_by": "Alice", "reason": "no .NET curriculum for this role"}
+
+The analysis is re-scored from the same source documents and the stored
+requirement set. Every override is recorded on the requirement
+(`reviewed_by`, `review_reason`, `weight_source: "reviewed"`), so a corrected
+score stays traceable. Unknown requirements, out-of-range weights and
+non-numeric weights are rejected with the offending value named.
 
 ## Domain matches
 

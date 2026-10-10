@@ -1,6 +1,6 @@
 import os
 import uuid
-from flask import Flask, request, jsonify, send_from_directory
+from flask import Flask, request, jsonify, send_from_directory, Response
 from flask_cors import CORS
 from werkzeug.utils import secure_filename
 from dotenv import load_dotenv
@@ -666,11 +666,178 @@ def v1_get_report(analysis_id):
         except Exception as e:
             return jsonify({"error": str(e)}), 500
     report = src.get("report", {})
+    fmt = (request.args.get("format") or "json").lower()
+    if fmt == "pdf":
+        # Renders the SAME stored report object, so the PDF cannot disagree
+        # with the headline, the breakdown or the JSON export.
+        from services.pdf_report import render_report_pdf
+        pdf = render_report_pdf(report)
+        resp = Response(pdf, mimetype="application/pdf")
+        resp.headers["Content-Disposition"] = (
+            f"attachment; filename=screening-report-{analysis_id}.pdf")
+        return resp
     resp = jsonify(report)
-    if request.args.get("format") == "json":
+    if fmt == "json":
         resp.headers["Content-Disposition"] = (
             f"attachment; filename=screening-report-{analysis_id}.json")
     return resp
+
+
+@app.route("/api/v1/analyses/<analysis_id>/requirements", methods=["PATCH"])
+def v1_review_requirements(analysis_id):
+    """Manual review of extracted requirements, applied BEFORE final scoring.
+
+    A reviewer can drop a requirement the parser invented, restore one it
+    missed, or correct a weight. Every override is recorded on the requirement
+    (reviewed_by / review_reason) so a corrected score is still traceable, and
+    the analysis is then re-scored from the same source documents.
+
+    Body: {"exclude": ["asp.net"], "restore": ["kubernetes"],
+           "weights": {"java": 4}, "mandatory": {"react": true}}
+    """
+    body = request.get_json(silent=True) or {}
+    a = _ANALYSES.get(analysis_id)
+    if not a:
+        try:
+            from database.db_handler import get_candidate_by_id
+            stored = get_candidate_by_id(analysis_id)
+        except Exception:
+            stored = None
+        if not stored:
+            return jsonify({"error": "Analysis not found. Re-run the analysis "
+                                     "to recreate it before reviewing."}), 404
+        a = stored
+    src = a.get("explainable") or {}
+    jd_text = a.get("job_description") or (a.get("jd_meta") or {}).get(
+        "job_description", "")
+    path = os.path.join(UPLOAD_FOLDER, a.get("resume_file", "") or "")
+    if not a.get("resume_file") or not os.path.exists(path):
+        return jsonify({"error": "The original resume is unavailable, so the "
+                                 "analysis cannot be re-scored. Re-run it."}), 410
+
+    reviewed_by = (body.get("reviewed_by") or "manual review")[:80]
+    review_reason = (body.get("reason") or "reviewer correction")[:300]
+    try:
+        out = _rescore_with_overrides(a, path, jd_text, body, reviewed_by,
+                                      review_reason)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    return jsonify(out)
+
+
+def _rescore_with_overrides(stored, resume_path, jd_text, body, reviewed_by,
+                           review_reason):
+    """Re-run the pipeline with reviewer corrections applied to requirements."""
+    from services.requirement_extractor import extract_requirements
+    from services.evidence_extractor import extract_evidence
+    from services.scoring_engine import analyze as engine_analyze
+    from services.eligibility_checker import check_eligibility
+    from services.report_generator import build_report, analyze_gaps
+    from services.skill_extractor import (
+        extract_skills, extract_skills_with_categories,
+        extract_experience_years, extract_education)
+    from services.resume_parser import parse_resume
+
+    requirements = extract_requirements(jd_text, stored.get("jd_meta") or {})
+    if not requirements:
+        raise ValueError("insufficient-data: no scoreable requirements")
+
+    by_canon = {r["canonical_skill"]: r for r in requirements}
+    changes = []
+
+    for canon in body.get("exclude") or []:
+        canon = (canon or "").strip().lower()
+        if canon in by_canon:
+            by_canon[canon]["excluded"] = True
+            by_canon[canon]["review_note"] = f"excluded by {reviewed_by}"
+            changes.append({"requirement": canon, "action": "excluded"})
+    for canon in body.get("restore") or []:
+        canon = (canon or "").strip().lower()
+        hit = next((r for r in requirements if r["canonical_skill"] == canon), None)
+        if hit:
+            hit["excluded"] = False
+            hit["review_note"] = f"restored by {reviewed_by}"
+            changes.append({"requirement": canon, "action": "restored"})
+        else:
+            raise ValueError(f"cannot restore '{canon}': not a requirement "
+                             f"extracted from this JD")
+    for canon, weight in (body.get("weights") or {}).items():
+        canon = (canon or "").strip().lower()
+        if canon not in by_canon:
+            raise ValueError(f"unknown requirement '{canon}'")
+        try:
+            w = float(weight)
+        except (TypeError, ValueError):
+            raise ValueError(f"weight for '{canon}' must be a number, "
+                             f"got {weight!r}")
+        if not 1 <= w <= 5:
+            raise ValueError(f"weight for '{canon}' must be in [1, 5], got {w}")
+        by_canon[canon]["importance_weight"] = w
+        by_canon[canon]["weight_source"] = "reviewed"
+        by_canon[canon]["weight_reason"] = f"set by {reviewed_by}: {review_reason}"
+        changes.append({"requirement": canon, "action": "weight", "value": w})
+    for canon, flag in (body.get("mandatory") or {}).items():
+        canon = (canon or "").strip().lower()
+        if canon not in by_canon:
+            raise ValueError(f"unknown requirement '{canon}'")
+        by_canon[canon]["mandatory"] = bool(flag)
+        by_canon[canon]["mandatory_explicit"] = False
+        by_canon[canon]["mandatory_source"] = (
+            f"set by {reviewed_by} (reviewed, not JD-explicit)")
+        changes.append({"requirement": canon, "action": "mandatory",
+                        "value": bool(flag)})
+
+    for r in requirements:
+        r.setdefault("excluded", False)
+        r["reviewed_by"] = reviewed_by
+        r["review_reason"] = review_reason
+    scored_requirements = [r for r in requirements if not r["excluded"]]
+
+    parsed = parse_resume(resume_path)
+    skills = extract_skills(parsed["clean_text"])
+    exp_years, exp_detail = extract_experience_years(parsed["raw_text"],
+                                                     detail=True)
+    education = extract_education(parsed["raw_text"])
+    want = sorted({r["canonical_skill"] for r in scored_requirements} | set(skills))
+    evidence = extract_evidence(parsed, want)
+
+    analysis = engine_analyze(
+        scored_requirements, skills, evidence, parsed.get("clean_text", ""),
+        exp_years, stored.get("required_experience") or 0,
+        experience_profile=exp_detail)
+    if analysis.get("status") != "ok":
+        raise ValueError(analysis.get("reason", "insufficient-data"))
+
+    eligibility = check_eligibility(scored_requirements, evidence, education,
+                                    exp_years, stored.get("required_experience") or 0,
+                                    stored.get("jd_meta") or {}, jd_text=jd_text)
+    gaps = analyze_gaps(analysis["requirements"])
+    report = build_report(
+        {"name": parsed.get("name"), "education": education,
+         "experience_years": exp_years},
+        scored_requirements, analysis["requirements"], analysis["aggregate"],
+        eligibility, evidence, stored.get("jd_meta") or {}, gaps,
+        extraction_status=parsed.get("extraction_status", "ok"))
+
+    _ANALYSES[stored.get("id") or stored.get("candidate_id") or ""] = {
+        "candidate": {"final_score": analysis["aggregate"]["overall_score"],
+                      "experience_years": exp_years, "education": education},
+        "explainable": analysis, "jd_meta": stored.get("jd_meta") or {},
+        "job_description": jd_text,
+        "required_experience": stored.get("required_experience") or 0,
+        "resume_file": stored.get("resume_file"),
+    }
+    return {
+        "analysis_id": stored.get("id") or stored.get("candidate_id"),
+        "reviewed_by": reviewed_by,
+        "review_reason": review_reason,
+        "changes": changes,
+        "excluded": [r["canonical_skill"] for r in requirements if r["excluded"]],
+        "requirements": analysis["requirements"],
+        "aggregate": analysis["aggregate"],
+        "eligibility": eligibility,
+        "report": report,
+    }
 
 
 @app.route("/api/v1/analyses/<analysis_id>/recalculate", methods=["POST"])

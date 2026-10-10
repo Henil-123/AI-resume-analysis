@@ -80,7 +80,10 @@ function esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').repla
 function initDropZone() {
   const dz = document.getElementById('drop-zone');
   const fi = document.getElementById('file-input');
-  dz.onclick = () => fi.click();
+  if (!dz || !fi) return; // label[for] fallback still opens browse natively
+  // NOTE: no dz.onclick → fi.click() here. #drop-zone is a <label
+  // for="file-input">, so the browser opens the picker natively (works even
+  // if this script fails). A synthetic click would double-open the dialog.
   dz.ondragover = e => { e.preventDefault(); dz.classList.add('over'); };
   dz.ondragleave = () => dz.classList.remove('over');
   dz.ondrop = e => { e.preventDefault(); dz.classList.remove('over'); addFiles(e.dataTransfer.files); };
@@ -523,7 +526,7 @@ function explainSections(c) {
   const fi = a.formula_inputs || {};
   const ed = a.experience_detail || {};
   const elig = x.eligibility || {};
-  const gaps = elig.skill_gaps || [];
+  const skillGaps = elig.skill_gaps || [];
   return `
     <div class="detail-section">
       <div class="ds-title">How This Score Was Calculated</div>
@@ -555,7 +558,7 @@ function explainSections(c) {
         <b>${esc(elig.overall || 'UNKNOWN')}</b>
         <br/><span class="req-src">${esc(elig.note || '')}</span>
         ${(elig.criteria || []).map(cr => `<br/>• ${esc(cr.criterion)} — <b>${esc(cr.status)}</b><br/><span class="req-src">${esc(cr.detail || '')}${cr.source ? ' [source: ' + esc(cr.source) + ']' : ''}</span>`).join('')}
-        ${gaps.length ? `<br/><span class="req-src">Skill gaps (affect score, not eligibility): ${esc(gaps.map(g => g.skill).join(', '))}</span>` : ''}
+        ${skillGaps.length ? `<br/><span class="req-src">Skill gaps (affect score, not eligibility): ${esc(skillGaps.map(g => g.skill).join(', '))}</span>` : ''}
       </div>
     </div>
     <div class="detail-section">
@@ -1121,8 +1124,10 @@ document.addEventListener('DOMContentLoaded', () => {
   initDropZone();
   initJdInput();
   const dz = document.getElementById('drop-zone');
-  dz.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); document.getElementById('file-input').click(); } });
-  document.querySelector('.brand').addEventListener('keydown', e => { if (e.key === 'Enter') showView('analyze'); });
+  const fi = document.getElementById('file-input');
+  if (dz && fi) dz.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fi.click(); } });
+  const brand = document.querySelector('.brand');
+  if (brand) brand.addEventListener('keydown', e => { if (e.key === 'Enter') showView('analyze'); });
   showView('analyze');
   loadExisting();
 });

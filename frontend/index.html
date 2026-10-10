@@ -106,13 +106,13 @@
         <div class="step-desc">Drop files or browse. Each resume is parsed, scored and stored.</div>
       </div>
     </div>
-    <div class="drop-zone" id="drop-zone" role="button" tabindex="0" aria-label="Upload resumes">
+    <label class="drop-zone" id="drop-zone" for="file-input" role="button" tabindex="0" aria-label="Upload resumes">
       <div class="dz-icon" aria-hidden="true">
         <svg width="26" height="26" viewBox="0 0 24 24" fill="none"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8l-5-5Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M14 3v5h5" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M12 11v6m0 0l-2.5-2.5M12 17l2.5-2.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
       </div>
       <div class="dz-title">Drop resumes here or click to browse</div>
       <div class="dz-hint">PDF · DOCX · TXT — multiple files supported</div>
-    </div>
+    </label>
     <input type="file" id="file-input" accept=".pdf,.docx,.doc,.txt" multiple/>
     <div class="file-list" id="file-list"></div>
   </section>

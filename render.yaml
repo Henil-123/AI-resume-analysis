@@ -8,6 +8,8 @@ services:
         value: 5000
       - key: APP_ENV
         value: production
+      - key: SEMANTIC_ENGINE
+        value: tfidf
       - key: MONGO_URI
         sync: false
       - key: DB_NAME

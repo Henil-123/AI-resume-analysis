@@ -206,7 +206,9 @@ def _analyze_single_file(file_path, required_skills, required_experience, job_de
 # ── Health check ──────────────────────────────────────────────
 @app.route("/health", methods=["GET"])
 def health():
-    info = {"status": "ok", "message": "AI Resume Analyzer API is running"}
+    info = {"status": "ok", "message": "AI Resume Analyzer API is running",
+            "app_env": os.getenv("APP_ENV", "development"),
+            "semantic_engine": os.getenv("SEMANTIC_ENGINE", "bert")}
     try:
         from services.skill_extractor import SPACY_MODEL_NAME
         info["spacy_model"] = SPACY_MODEL_NAME
@@ -217,6 +219,10 @@ def health():
         info["embed_model"] = embed_status()
     except Exception as e:
         info["embed_model"] = f"unavailable: {e}"
+    # Groq was retired in favor of the local precision engine (BERT/TF-IDF).
+    # Keys kept for backward compatibility with older dashboards.
+    info["groq_connected"] = False
+    info["groq_error"] = "Groq retired; local precision engine in use"
     return jsonify(info)
 
 
@@ -530,6 +536,8 @@ def delete_candidate(candidate_id):
 # ── Clear all (dev only) ──────────────────────────────────────
 @app.route("/clear", methods=["DELETE"])
 def clear_all():
+    if os.getenv("APP_ENV") == "production" or os.getenv("FLASK_ENV") == "production":
+        return jsonify({"error": "Clear is disabled in production"}), 403
     try:
         from database.db_handler import clear_all_candidates
         clear_all_candidates()
@@ -540,5 +548,6 @@ def clear_all():
 
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 5000))
-    print(f"\n>> AI Resume Analyzer API running on http://localhost:{port}\n")
-    app.run(debug=True, port=port)
+    is_dev = os.getenv("APP_ENV") != "production" and os.getenv("FLASK_ENV") != "production"
+    print(f"\n>> AI Resume Analyzer API running on http://localhost:{port} (debug={is_dev})\n")
+    app.run(host="0.0.0.0", debug=is_dev, port=port)

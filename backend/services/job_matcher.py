@@ -2,25 +2,109 @@
 
 import hashlib
 import math
+import os
+import re
 
 try:
     from services.skill_aliases import normalize_skill_list
 except ImportError:
     from skill_aliases import normalize_skill_list
 
+# ── Light TF-IDF embedder (no torch; for low-RAM hosts) ──
+class _TfidfEmbedder:
+    """Drop-in replacement for SentenceTransformer.encode.
+
+    Fits its vocabulary/IDF once (taxonomy seed + first texts seen),
+    then freezes it so separately-encoded JD and resume matrices stay
+    in the same vector space. OOV terms after the freeze are ignored.
+    """
+    NAME = "tfidf-cosine (light)"
+
+    def __init__(self):
+        self.vocab = {}
+        self.idf = None
+        self._fitted = False
+
+    @staticmethod
+    def _tokens(t):
+        return re.findall(r"[a-z0-9]+(?:[+#])?", (t or "").lower())
+
+    def _fit(self, texts):
+        from collections import Counter
+        seed = list(texts)
+        try:
+            try:
+                from services.skill_extractor import all_skills as _tax
+            except ImportError:
+                from skill_extractor import all_skills as _tax
+            seed = list(_tax) + seed
+        except Exception:
+            pass
+        df = Counter()
+        for t in seed:
+            for tok in set(self._tokens(t)):
+                df[tok] += 1
+        if not df:
+            df = Counter({"resume": 1, "job": 1})
+        ordered = sorted(df)
+        import numpy as _np
+        n = max(len(seed), 1)
+        self.vocab = {tok: i for i, tok in enumerate(ordered)}
+        self.idf = _np.array(
+            [math.log((n + 1) / (df[tok] + 1)) + 1.0 for tok in ordered],
+            dtype=_np.float32)
+        self._fitted = True
+
+    def encode(self, texts, normalize_embeddings=True,
+               convert_to_numpy=True, show_progress_bar=False):
+        import numpy as _np
+        if isinstance(texts, str):
+            texts = [texts]
+        texts = list(texts)
+        if not self._fitted:
+            self._fit(texts)
+        mat = _np.zeros((len(texts), len(self.vocab)), dtype=_np.float32)
+        for i, t in enumerate(texts):
+            for tok in self._tokens(t):
+                j = self.vocab.get(tok)
+                if j is not None:
+                    mat[i, j] += 1.0
+        if mat.shape[1]:
+            mat *= self.idf
+        if normalize_embeddings:
+            n = _np.linalg.norm(mat, axis=1, keepdims=True)
+            n[n == 0] = 1.0
+            mat /= n
+        return mat
+
+
 # ── Embedding model cascade (best first, cached once) ──
 # BAAI/bge-small-en-v1.5: same size class as MiniLM (~33M params) but
 # measurably stronger at retrieval-style semantic similarity.
+# SEMANTIC_ENGINE=tfidf (or no torch stack) selects the light engine.
 MODEL_CANDIDATES = ('BAAI/bge-small-en-v1.5', 'all-MiniLM-L6-v2')
 _EMBED_MODEL = None
 _EMBED_MODEL_NAME = None
+
+
+def _light_engine(reason):
+    global _EMBED_MODEL, _EMBED_MODEL_NAME
+    _EMBED_MODEL = _TfidfEmbedder()
+    _EMBED_MODEL_NAME = _TfidfEmbedder.NAME
+    print(f"Embedding engine: TF-IDF cosine ({reason})")
+    return _EMBED_MODEL
 
 
 def _get_embed_model():
     global _EMBED_MODEL, _EMBED_MODEL_NAME
     if _EMBED_MODEL is not None:
         return _EMBED_MODEL
-    from sentence_transformers import SentenceTransformer
+    if os.environ.get("SEMANTIC_ENGINE", "").lower() == "tfidf":
+        return _light_engine("SEMANTIC_ENGINE=tfidf")
+    try:
+        from sentence_transformers import SentenceTransformer
+    except Exception as e:
+        return _light_engine(f"no torch stack ({e})")
     last_err = None
     for name in MODEL_CANDIDATES:
         try:

@@ -17,6 +17,10 @@ build/
 # Data (don't commit real resumes)
 data/resumes/*.pdf
 data/resumes/*.docx
+data/resumes/*.doc
+data/resumes/*.txt
+!data/resumes/sample_*.txt
+!data/resumes/.gitkeep
 data/candidates.json
 
 # Models (too large for git)

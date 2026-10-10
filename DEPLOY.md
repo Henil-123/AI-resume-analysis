@@ -1,0 +1,49 @@
+# Deploy guide — one Render backend + one Vercel frontend
+
+## Architecture
+
+- **Backend** (Flask): deployed on **Render** from `deployment/Dockerfile`.
+  Serves the API **and** the frontend statically (so Render alone is usable).
+- **Frontend** (static): deployed on **Vercel** from `frontend/`.
+  API calls go to same-origin `/api/*`, rewritten to the Render backend.
+
+## 1. Render (backend)
+
+1. New → Web Service → connect `Henil-123/AI-resume-analysis`.
+2. Settings:
+   - Runtime: **Docker**, Dockerfile path: `deployment/Dockerfile`
+   - Plan: Free; Health check path: `/health`
+3. Environment variables (see `render.yaml`):
+   - `APP_ENV=production`, `PORT=5000`
+   - `SEMANTIC_ENGINE=tfidf` — **required on free tier**.
+     The BERT engine (BGE/MiniLM via torch) exceeds 512 MB RAM and will
+     502/503 under load. `tfidf` uses a dependency-free cosine engine:
+     no torch import, rankings stay correct via weighted skills + IDF +
+     must-have gate. Local dev leaves it unset for full BERT accuracy.
+   - `MONGO_URI` (optional — app falls back to local JSON store),
+     `DB_NAME=resume_analyzer`, `JWT_SECRET` (generate), `GROQ_API_KEY`
+     (legacy, unused — Groq was retired).
+4. Deploy, then verify:
+   - `GET https://<your-service>.onrender.com/health` →
+     `{"status":"ok","spacy_model":"en_core_web_sm", ...}`.
+
+## 2. Vercel (frontend) — keep exactly ONE project
+
+1. Import the same repo. **Root Directory: `frontend`**.
+   (A root `vercel.json` is also provided if you prefer repo-root.)
+2. Update the backend URL in **both** `vercel.json` files:
+   `destination: "https://<your-service>.onrender.com/:path*"`
+   and redeploy. (Rewrites are build-time — editing the file needs a redeploy.)
+3. No rebuild needed for quick backend moves: in the live site console run
+   `localStorage.setItem('backend_url','https://<your-service>.onrender.com')`
+   and reload — or set `window.__BACKEND_URL__` before `app.js` loads.
+
+## 3. Common failures
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| `OSError: [E050] en_core_web_sm` | model missing | Fixed in code (resilient loader + pinned wheel in `requirements.txt`). Rebuild. |
+| `502` after ~60 s on first analysis | BERT cold-load / OOM on free tier | Set `SEMANTIC_ENGINE=tfidf` on Render (already in `render.yaml` + `Dockerfile`). |
+| `429` bursts on free Render | QA hammered the free instance | Wait 60 s, retry serially. Not an app bug. |
+| Red X on GitHub commit | a connected Vercel project failing | Keep ONE Vercel project; delete duplicates or set its Root Directory to `frontend`. Code is unaffected. |
+| Vercel login wall on the URL | Deployment Protection on | Vercel → Project → Settings → Deployment Protection → off. |

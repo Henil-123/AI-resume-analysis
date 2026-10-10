@@ -115,6 +115,21 @@ docker build -f deployment/Dockerfile -t resume-analyzer .
 docker run -p 5000:5000 resume-analyzer
 ```
 
+On low-RAM hosts (Render free tier) the image defaults to
+`SEMANTIC_ENGINE=tfidf` — a dependency-free cosine engine that avoids
+loading torch into memory. Local Docker runs can opt into full BERT
+accuracy with `-e SEMANTIC_ENGINE=bert`.
+
+---
+
+## 🚀 Hosted Deployment (Render + Vercel)
+
+One backend on Render, one frontend on Vercel — see `DEPLOY.md` for the
+full guide. After redeploying Render, update the `destination` URL in
+`vercel.json` + `frontend/vercel.json` to your new
+`https://<service>.onrender.com/:path*`, and verify
+`GET /health` reports `"spacy_model": "en_core_web_sm"`.
+
 ---
 
 ## 📈 How Scoring Works (precision model)

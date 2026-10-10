@@ -29,18 +29,24 @@ fi
 # Activate venv
 source venv/bin/activate 2>/dev/null || source venv/Scripts/activate 2>/dev/null
 
-# Install requirements
+# Install requirements (includes the pinned spaCy model wheel,
+// so no separate `spacy download` step is needed)
 echo "📦 Installing Python dependencies (this takes ~2 minutes)..."
 pip install -q -r requirements.txt
 
-# Download spaCy model
-echo "🤖 Downloading spaCy NLP model..."
-python -m spacy download en_core_web_sm -q
+# Verify spaCy model (installed via requirements wheel)
+echo "🤖 Verifying spaCy NLP model..."
+python -c "import spacy; spacy.load('en_core_web_sm'); print('spaCy model OK')" 2>/dev/null \
+  || echo "⚠️  spaCy model missing — the app will auto-download it on first run, or use the blank-pipeline fallback"
 
 # Copy .env
 if [ ! -f ".env" ]; then
-  cp .env.example .env
-  echo "📝 Created .env file (edit it to add MongoDB URI)"
+  if [ -f ".env.example" ]; then
+    cp .env.example .env
+    echo "📝 Created .env file (edit it to add MongoDB URI)"
+  else
+    echo "⚠️  No .env.example found — skipping .env creation"
+  fi
 fi
 
 cd ..

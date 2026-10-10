@@ -1,7 +1,12 @@
 const _host = window.location.hostname;
+// Hosted override: set window.__BACKEND_URL__ before app.js loads, or run
+//   localStorage.setItem('backend_url', 'https://YOUR-BACKEND.onrender.com')
+// in the browser console, then reload. Falls back to the /api rewrite
+// (see vercel.json) so a single edit re-points the whole app.
+const _override = ((window.__BACKEND_URL__ || localStorage.getItem('backend_url') || '') + '').replace(/\/$/, '');
 const API = (_host === '' || _host === 'localhost' || _host === '127.0.0.1')
   ? 'http://localhost:5000'  // local dev / Flask-served / file://
-  : '/api';                  // hosted frontend (Vercel rewrites /api/* to the backend)
+  : (_override || '/api');    // hosted frontend (Vercel rewrites /api/* to the backend)
 let allCands = [], filteredCands = [], selectedIds = new Set();
 let selectedFiles = [];
 let jdFile = null;

@@ -74,6 +74,35 @@ def _get_stored_analysis(analysis_id):
     return payload
 
 
+def _warmup_models():
+    """Pre-load spaCy + the embedding engine in the background at startup.
+
+    Without this, the first analysis after a cold start pays ~30-60s of model
+    loading inside the request, which trips the hosting proxy timeout and the
+    user sees 'cannot connect'. Warm models make the first request fast.
+    Runs once per process; failures only log (requests still work, slower).
+    """
+    import threading
+    import time
+
+    def _run():
+        t0 = time.time()
+        try:
+            from services import job_matcher as _jm
+            _jm._get_embed_model()
+            _jm._embed_batch(["warmup probe"])
+            import services.skill_extractor  # noqa: F401 (spacy + matcher)
+            log.info("model warmup done in %.1fs (engine=%s)",
+                     time.time() - t0, _jm.embed_status())
+        except Exception as e:
+            log.warning("model warmup failed (%s); first request will be slower",
+                        type(e).__name__)
+    threading.Thread(target=_run, name="model-warmup", daemon=True).start()
+
+
+_warmup_models()
+
+
 def _is_prod():
     return app_config.IS_PROD
 

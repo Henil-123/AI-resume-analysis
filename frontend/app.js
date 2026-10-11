@@ -173,11 +173,37 @@ async function parseJdFile() {
       + (pts ? `<pre>${esc(pts)}</pre>` : '');
     toast('JD parsed — role requirements auto-filled.', 'success');
   } catch (e) {
-    box.textContent = 'Cannot connect to backend. Make sure the API is running on port 5000.';
+    box.textContent = isHosted()
+      ? 'Cannot reach the hosted backend. It may be waking from sleep — wait a minute and retry.'
+      : 'Cannot connect to backend. Make sure the API is running on port 5000.';
   }
 }
 
 // ── Analysis ───────────────────────────────────────────────
+function isHosted() {
+  return !(API.startsWith('http://localhost') || API.startsWith('http://127.'));
+}
+// Free-tier hosting sleeps and cold-starts (~60s). Analysis itself can take a
+// minute on a cold backend, so give the request room, then say exactly what
+// happened instead of blaming localhost on a hosted page.
+const ANALYZE_TIMEOUT_MS = 170000;
+
+async function readApiError(r) {
+  try {
+    const ct = r.headers.get('content-type') || '';
+    if (ct.includes('application/json')) {
+      const data = await r.json();
+      return data.error || ('Request failed (HTTP ' + r.status + ').');
+    }
+    const text = (await r.text()).slice(0, 200);
+    if (r.status === 504 || r.status === 502 || r.status === 503)
+      return 'The backend did not answer in time (HTTP ' + r.status + '). It may be waking from sleep — retry in a minute.';
+    return text || ('Request failed (HTTP ' + r.status + ').');
+  } catch (e) {
+    return 'Could not read the backend response (HTTP ' + r.status + '). Retry shortly.';
+  }
+}
+
 async function runAnalysis() {
   const jd = document.getElementById('jd-input').value.trim();
   const skills = document.getElementById('skills-input').value.trim();
@@ -189,7 +215,8 @@ async function runAnalysis() {
   const loader = document.getElementById('loader');
   const loadStep = document.getElementById('load-step');
   loader.classList.add('on');
-  loadStep.textContent = `Analyzing ${selectedFiles.length} resume(s)...`;
+  loadStep.textContent = `Analyzing ${selectedFiles.length} resume(s)...` +
+    (isHosted() ? ' (hosted backend may take a minute when cold)' : '');
 
   const form = new FormData();
   selectedFiles.forEach(f => form.append('resumes', f));
@@ -198,8 +225,12 @@ async function runAnalysis() {
   form.append('required_experience', exp);
   if (jdFile) form.append('jd_file', jdFile);
 
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), ANALYZE_TIMEOUT_MS);
   try {
-    const r = await fetch(API + '/analyze-batch', { method: 'POST', body: form });
+    const r = await fetch(API + '/analyze-batch', { method: 'POST', body: form, signal: ctrl.signal });
+    clearTimeout(timer);
+    if (!r.ok) { toast(await readApiError(r), 'error'); loader.classList.remove('on'); return; }
     const data = await r.json();
     if (data.error) { toast(data.error, 'error'); loader.classList.remove('on'); return; }
     allCands = data.candidates || [];
@@ -218,7 +249,14 @@ async function runAnalysis() {
     buildSkillFilters();
     renderCards();
   } catch (e) {
-    toast('Cannot connect to backend. Make sure the API is running on port 5000.', 'error');
+    clearTimeout(timer);
+    if (e && e.name === 'AbortError') {
+      toast('Analysis timed out after ~3 minutes. The hosted backend may be waking from sleep — it stays warm after the first run, so retry now.', 'error');
+    } else if (isHosted()) {
+      toast('Cannot reach the hosted backend. It may be waking from sleep — wait a minute and retry. (No local server needed.)', 'error');
+    } else {
+      toast('Cannot connect to backend. Make sure the API is running on port 5000.', 'error');
+    }
   }
   loader.classList.remove('on');
 }

@@ -100,7 +100,7 @@ def _warmup_models():
     threading.Thread(target=_run, name="model-warmup", daemon=True).start()
 
 
-_warmup_models()
+_warmup_models()  # covers `python app.py` dev; gunicorn --preload forks below
 
 
 def _is_prod():
@@ -125,6 +125,24 @@ elif _is_prod():
 else:
     CORS(app)
 app.config["MAX_CONTENT_LENGTH"] = app_config.MAX_FILE_MB * 1024 * 1024
+
+
+_WARMED_IN_THIS_WORKER = False
+
+
+@app.before_request
+def _ensure_warmed_in_worker():
+    """Start model warmup inside each gunicorn worker, once.
+
+    Import-time threads do not survive `--preload` fork, so without this the
+    worker serving the first request is still cold and that request pays the
+    full spaCy + embedding load inside the proxy timeout. Idempotent no-op
+    after the first request per worker process.
+    """
+    global _WARMED_IN_THIS_WORKER
+    if not _WARMED_IN_THIS_WORKER:
+        _WARMED_IN_THIS_WORKER = True
+        _warmup_models()
 
 
 @app.errorhandler(413)

@@ -63,3 +63,19 @@ def test_init_guards_missing_elements():
     init = src[src.find("document.addEventListener('DOMContentLoaded'"):]
     assert "if (dz && fi)" in init
     assert "if (brand)" in init
+
+
+def test_analysis_gated_on_backend_health():
+    """runAnalysis must check /health first, not fire blind into a 502."""
+    src = _read(APP_JS)
+    assert "async function checkBackend(" in src
+    run = src[src.find("async function runAnalysis()"):src.find("async function runAnalysis()") + 2500]
+    assert "await checkBackend(" in run
+    assert "Your files are still selected" in run
+
+
+def test_footer_note_is_hosting_aware():
+    """The 'local backend, nothing sent' note must not lie on the hosted site."""
+    src = _read(APP_JS)
+    assert "nothing is sent anywhere" in src  # local case kept
+    assert "uploaded resumes are sent there" in src  # hosted case honest

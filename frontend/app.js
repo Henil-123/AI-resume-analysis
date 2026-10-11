@@ -188,6 +188,37 @@ function isHosted() {
 // happened instead of blaming localhost on a hosted page.
 const ANALYZE_TIMEOUT_MS = 170000;
 
+// ── Backend readiness ──────────────────────────────────────
+// The free-tier backend sleeps and rebuilds on every push; firing a 3-minute
+// analysis blind is what produced the bare "HTTP 502" reports. Check the
+// lightweight /health first (short timeout), reflect it in the status dot,
+// and refuse to start analysis while the backend is unreachable.
+let backendUp = false;
+
+async function checkBackend(timeoutMs = 20000) {
+  const dot = document.getElementById('api-status');
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const r = await fetch(API + '/health', { signal: ctrl.signal });
+    clearTimeout(t);
+    backendUp = r.ok;
+  } catch (e) { clearTimeout(t); backendUp = false; }
+  if (dot) {
+    dot.classList.toggle('ok', backendUp);
+    dot.classList.toggle('bad', !backendUp);
+    dot.title = backendUp ? 'Backend reachable'
+      : 'Backend unreachable (sleeping or redeploying) — wait a minute and retry';
+  }
+  const note = document.querySelector('.footer-note');
+  if (note) note.textContent = isHosted()
+    ? (backendUp
+      ? 'Analysis runs on the hosted backend — uploaded resumes are sent there for scoring.'
+      : 'Backend is unreachable (free tier sleeps, and it restarts on every deploy) — wait a minute, then retry. Nothing is analyzed until it answers.')
+    : 'Analysis runs on your local backend — nothing is sent anywhere.';
+  return backendUp;
+}
+
 async function readApiError(r) {
   try {
     const ct = r.headers.get('content-type') || '';
@@ -214,6 +245,14 @@ async function runAnalysis() {
 
   const loader = document.getElementById('loader');
   const loadStep = document.getElementById('load-step');
+  loadStep.textContent = 'Checking backend...';
+  loader.classList.add('on');
+  if (!(await checkBackend(25000))) {
+    loader.classList.remove('on');
+    toast('Backend is unreachable (sleeping or redeploying) — wait a minute and click Analyze again. Your files are still selected.', 'error');
+    return;
+  }
+
   loader.classList.add('on');
   loadStep.textContent = `Analyzing ${selectedFiles.length} resume(s)...` +
     (isHosted() ? ' (hosted backend may take a minute when cold)' : '');
@@ -263,6 +302,8 @@ async function runAnalysis() {
 
 // ── Load existing candidates ───────────────────────────────
 async function loadExisting() {
+  const up = await checkBackend(20000);
+  if (!up) { showView('analyze'); return; }
   try {
     const r = await fetch(API + '/candidates');
     const data = await r.json();

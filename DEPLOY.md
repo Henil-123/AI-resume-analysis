@@ -31,10 +31,16 @@
 
 1. Import the same repo. **Root Directory: `frontend`**.
    (A root `vercel.json` is also provided if you prefer repo-root.)
-2. Update the backend URL in **both** `vercel.json` files:
-   `destination: "https://<your-service>.onrender.com/:path*"`
-   and redeploy. (Rewrites are build-time — editing the file needs a redeploy.)
-3. No rebuild needed for quick backend moves: in the live site console run
+2. The app calls the Render backend **directly from the browser**
+   (`DEFAULT_BACKEND` in `frontend/app.js`, must match the `destination` in
+   both `vercel.json` files). The `/api` rewrite stays only as a fallback
+   (set `localStorage.backend_url='/api'` to use it) — it 502s long
+   analysis POSTs through the proxy timeout, so direct is the default.
+3. CORS: unset `CORS_ORIGINS` in production = allow-all with a startup
+   warning (fine while the API carries no cookies; review/delete stay
+   token-gated). Set `CORS_ORIGINS=https://<your-frontend>.vercel.app` on
+   Render to lock down.
+4. No rebuild needed for quick backend moves: in the live site console run
    `localStorage.setItem('backend_url','https://<your-service>.onrender.com')`
    and reload — or set `window.__BACKEND_URL__` before `app.js` loads.
 

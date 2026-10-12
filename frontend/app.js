@@ -1,12 +1,15 @@
 const _host = window.location.hostname;
 // Hosted override: set window.__BACKEND_URL__ before app.js loads, or run
 //   localStorage.setItem('backend_url', 'https://YOUR-BACKEND.onrender.com')
-// in the browser console, then reload. Falls back to the /api rewrite
-// (see vercel.json) so a single edit re-points the whole app.
+// in the browser console, then reload. Set to '/api' to route via the Vercel
+// rewrite instead (slower, proxy timeouts on long analyses).
+// Default is DIRECT backend calls: the Vercel rewrite proxy 502s long
+// analysis POSTs, so the app talks to Render straight from the browser.
+const DEFAULT_BACKEND = 'https://ai-resume-analysis-4i37.onrender.com';
 const _override = ((window.__BACKEND_URL__ || localStorage.getItem('backend_url') || '') + '').replace(/\/$/, '');
 const API = (_host === '' || _host === 'localhost' || _host === '127.0.0.1')
   ? 'http://localhost:5000'  // local dev / Flask-served / file://
-  : (_override || '/api');    // hosted frontend (Vercel rewrites /api/* to the backend)
+  : (_override || DEFAULT_BACKEND);  // hosted frontend: direct, no proxy
 let allCands = [], filteredCands = [], selectedIds = new Set();
 let selectedFiles = [];
 let jdFile = null;

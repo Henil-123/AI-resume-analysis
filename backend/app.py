@@ -120,8 +120,13 @@ app = Flask(__name__, static_folder=FRONTEND_DIR, static_url_path="")
 if app_config.CORS_ORIGINS:
     CORS(app, origins=app_config.CORS_ORIGINS)
 elif _is_prod():
-    # validate() refuses to start in prod without origins; belt and braces.
-    CORS(app, origins=[])
+    # No origins configured: allow all so the hosted frontend works out of
+    # the box (the API carries no cookies; review/delete stay token-gated).
+    # Loud on purpose — set CORS_ORIGINS to lock down. validate() says the
+    # same when run via `python app.py`.
+    log.warning("CORS_ORIGINS unset in production: allowing all origins. "
+                "Set CORS_ORIGINS to your frontend URL to lock down.")
+    CORS(app)
 else:
     CORS(app)
 app.config["MAX_CONTENT_LENGTH"] = app_config.MAX_FILE_MB * 1024 * 1024

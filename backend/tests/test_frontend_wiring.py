@@ -90,6 +90,23 @@ def test_status_dot_wakes_backend():
     assert "wakeBackend" in init
 
 
+def test_hosted_api_bypasses_vercel_proxy():
+    """Long analysis POSTs 502 through the Vercel rewrite proxy, so the
+    hosted default must call the Render backend directly."""
+    import json as _json
+    src = _read(APP_JS)
+    m = re.search(r"const DEFAULT_BACKEND = '(https://[^']+)'", src)
+    assert m, "hosted API needs an explicit direct backend default"
+    direct = m.group(1)
+    for vf in (os.path.join(FRONTEND, "vercel.json"),
+               os.path.join(os.path.dirname(FRONTEND), "vercel.json")):
+        with open(vf, encoding="utf-8") as f:
+            cfg = _json.load(f)
+        dests = [r.get("destination", "") for r in cfg.get("rewrites", [])]
+        assert any(d.startswith(direct) for d in dests), \
+            f"DEFAULT_BACKEND {direct} must match a rewrite destination in {vf}"
+
+
 def test_no_in_worker_eager_warmup():
     """No before_request model warmup: it OOM-crashed the free-tier worker."""
     import os as _os

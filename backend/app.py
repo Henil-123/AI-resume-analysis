@@ -127,22 +127,12 @@ else:
 app.config["MAX_CONTENT_LENGTH"] = app_config.MAX_FILE_MB * 1024 * 1024
 
 
-_WARMED_IN_THIS_WORKER = False
-
-
-@app.before_request
-def _ensure_warmed_in_worker():
-    """Start model warmup inside each gunicorn worker, once.
-
-    Import-time threads do not survive `--preload` fork, so without this the
-    worker serving the first request is still cold and that request pays the
-    full spaCy + embedding load inside the proxy timeout. Idempotent no-op
-    after the first request per worker process.
-    """
-    global _WARMED_IN_THIS_WORKER
-    if not _WARMED_IN_THIS_WORKER:
-        _WARMED_IN_THIS_WORKER = True
-        _warmup_models()
+# NOTE: no eager in-worker warmup here. An earlier revision warmed models via
+# @app.before_request, but on the 512MB free tier the warmup thread raced the
+# request thread into a double spaCy load and OOM-killed the single worker in
+# a crash loop (service hung with zero-byte responses). Import-time
+# _warmup_models() above covers `python app.py` dev; under gunicorn --preload
+# its thread harmlessly dies on fork and models load lazily, once, on demand.
 
 
 @app.errorhandler(413)

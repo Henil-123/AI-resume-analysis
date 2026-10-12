@@ -219,6 +219,22 @@ async function checkBackend(timeoutMs = 20000) {
   return backendUp;
 }
 
+// Click the status dot to wake/re-check the backend: free-tier wake takes
+// 30–90s, longer than one check, so poll up to 3 times before giving up.
+async function wakeBackend() {
+  const dot = document.getElementById('api-status');
+  if (dot) { dot.classList.remove('ok', 'bad'); dot.title = 'Waking backend...'; }
+  toast('Waking backend — free tier can take ~a minute. Hold on...', 'info');
+  for (let i = 1; i <= 3; i++) {
+    if (await checkBackend(30000)) {
+      toast('Backend is up — you can analyze now.', 'success');
+      return true;
+    }
+  }
+  toast('Backend still unreachable. It may be redeploying — wait a couple of minutes and click the dot again.', 'error');
+  return false;
+}
+
 async function readApiError(r) {
   try {
     const ct = r.headers.get('content-type') || '';
@@ -1202,6 +1218,12 @@ function newAnalysis() {
 document.addEventListener('DOMContentLoaded', () => {
   initDropZone();
   initJdInput();
+  const dot = document.getElementById('api-status');
+  if (dot) {
+    dot.style.cursor = 'pointer';
+    dot.title = 'Checking backend... (click to re-check)';
+    dot.addEventListener('click', wakeBackend);
+  }
   const dz = document.getElementById('drop-zone');
   const fi = document.getElementById('file-input');
   if (dz && fi) dz.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fi.click(); } });

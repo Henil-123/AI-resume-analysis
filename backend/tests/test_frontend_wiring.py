@@ -79,3 +79,23 @@ def test_footer_note_is_hosting_aware():
     src = _read(APP_JS)
     assert "nothing is sent anywhere" in src  # local case kept
     assert "uploaded resumes are sent there" in src  # hosted case honest
+
+
+def test_status_dot_wakes_backend():
+    """Red dot must be actionable: click re-checks with wake retries."""
+    src = _read(APP_JS)
+    assert "async function wakeBackend(" in src
+    assert "for (let i = 1; i <= 3; i++)" in src
+    init = src[src.find("document.addEventListener('DOMContentLoaded'"):]
+    assert "wakeBackend" in init
+
+
+def test_no_in_worker_eager_warmup():
+    """No before_request model warmup: it OOM-crashed the free-tier worker."""
+    import os as _os
+    app_py = _os.path.join(_os.path.dirname(_os.path.dirname(
+        _os.path.abspath(__file__))), "app.py")
+    with open(app_py, encoding="utf-8") as f:
+        src = f.read()
+    assert "_ensure_warmed_in_worker" not in src
+    assert "\n@app.before_request" not in src

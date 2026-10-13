@@ -40,10 +40,27 @@ def test_health_answers_mid_analysis():
 
 
 def test_models_warm_before_serving_not_per_request():
-    """post_worker_init warms once; per-request warmup OOM-crashed the worker."""
+    """post_worker_init warms the instant engine once; boot must stay light.
+
+    A boot-time spaCy import hung >300 s under free-tier memory pressure
+    (no 'warmup done', worker killed pre-traffic), so the hook warms TF-IDF
+    only and spaCy stays lazy with a time-boxed download fallback.
+    """
     src = _read(CONF)
     assert "def post_worker_init" in src
-    assert "skill_extractor" in src  # spacy loads before traffic, not in it
+    assert "_get_embed_model" in src
+    import re as _re
+    assert not _re.search(r"^\s*import services\.skill_extractor", src, _re.M), \
+        "spaCy import at boot hung the worker; keep it lazy"
+
+
+def test_spacy_download_fallback_cannot_hang_boot():
+    """The model-download fallback must time out into the blank pipeline."""
+    base = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..",
+                        "services", "skill_extractor.py")
+    with open(base, encoding="utf-8") as f:
+        src = f.read()
+    assert "timeout=120" in src, "spacy download needs a timeout"
 
 
 def test_docker_uses_the_conf():

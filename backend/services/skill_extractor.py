@@ -27,7 +27,11 @@ def _load_nlp():
         import sys
         subprocess.check_call(
             [sys.executable, "-m", "spacy", "download", "en_core_web_sm"],
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            # Never hang a worker forever on a bad network: on timeout fall
+            # through to the blank pipeline (Render free-tier Logs 2026-10-13
+            # showed a boot stuck here past the 300 s worker budget).
+            timeout=120)
         return spacy.load("en_core_web_sm"), "en_core_web_sm"
     except Exception:
         pass

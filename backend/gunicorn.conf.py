@@ -29,13 +29,20 @@ keepalive = 5
 
 
 def post_worker_init(worker):
-    """Warm TF-IDF engine + spaCy once, before the worker serves traffic."""
+    """Warm the instant TF-IDF engine before the worker serves traffic.
+
+    spaCy is deliberately NOT imported here: on 2026-10-13 a boot-time
+    `import services.skill_extractor` never finished (no 'warmup done' in
+    300 s under free-tier memory pressure) and the worker was killed before
+    serving a single request. spaCy loads lazily on first use instead, with
+    the download fallback time-boxed (see skill_extractor._load_nlp), so a
+    slow load degrades rather than hangs the boot.
+    """
     try:
-        worker.log.info("warming models (tfidf + spacy)...")
+        worker.log.info("warming tfidf engine...")
         from services import job_matcher as _jm
         _jm._get_embed_model()
         _jm._embed_batch(["warmup probe"])
-        import services.skill_extractor  # noqa: F401 (spacy + matcher)
         worker.log.info("model warmup done (engine=%s)", _jm.embed_status())
     except Exception as e:
         worker.log.warning("model warmup failed (%s); first request slower",

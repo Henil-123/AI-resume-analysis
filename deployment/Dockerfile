@@ -29,4 +29,7 @@ ENV APP_ENV=production \
     PORT=5000 \
     SEMANTIC_ENGINE=tfidf
 
-CMD gunicorn --bind 0.0.0.0:$PORT --workers 1 --timeout 180 --preload app:app
+# One worker + 2 threads (see backend/gunicorn.conf.py): /health keeps
+# answering while an analysis runs; 300s timeout because a cold free-tier
+# analysis can exceed 180s and killing the only worker 502s everything.
+CMD gunicorn -c gunicorn.conf.py app:app

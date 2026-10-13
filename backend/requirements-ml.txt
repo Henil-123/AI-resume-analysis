@@ -1,0 +1,11 @@
+# Optional ML stack: adds sentence-transformers + torch for the transformer
+# semantic engine (BAAI/bge-small-en-v1.5).
+#
+#   pip install -r requirements-ml.txt
+#
+# Production deliberately installs requirements.txt ONLY and runs
+# SEMANTIC_ENGINE=tfidf. Measured cost of `import sentence_transformers`
+# is ~105s and pulls in ~2GB; on the Render free tier that import used to
+# blow the gunicorn worker timeout inside a scoring request (502s).
+-r requirements.txt
+sentence-transformers==2.3.1

@@ -285,38 +285,76 @@ async function runAnalysis() {
 
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), ANALYZE_TIMEOUT_MS);
+  // Retry once automatically on a transport/5xx failure. A 502 from the
+  // free tier usually means the instance was asleep or mid-restart, so the
+  // backend is reachable a moment later — re-POSTing beats a dead end.
+  let r;
   try {
-    const r = await fetch(API + '/analyze-batch', { method: 'POST', body: form, signal: ctrl.signal });
+    r = await fetch(API + '/analyze-batch', { method: 'POST', body: form, signal: ctrl.signal });
+  } catch (e) {
+    r = null;
+    if (!(await _retryOnceAfterWake(e))) { clearTimeout(timer); _reportAnalyzeFailure(e); loader.classList.remove('on'); return; }
+    r = await fetch(API + '/analyze-batch', { method: 'POST', body: form, signal: ctrl.signal });
+  }
+  try {
     clearTimeout(timer);
-    if (!r.ok) { toast(await readApiError(r), 'error'); loader.classList.remove('on'); return; }
-    const data = await r.json();
-    if (data.error) { toast(data.error, 'error'); loader.classList.remove('on'); return; }
-    allCands = data.candidates || [];
-    filteredCands = [...allCands];
-    selectedIds.clear();
-    if ((data.errors || []).length) toast(`${data.errors.length} file(s) skipped: ${data.errors[0].file} — ${data.errors[0].error}`, 'warn');
-    if (data.jd_understanding && data.jd_understanding.summary) {
-      toast('JD understood: ' + data.jd_understanding.summary, 'success');
-    } else if (data.skills_auto_extracted && data.required_skills) {
-      toast('Skills auto-extracted from JD: ' + data.required_skills.join(', '), 'info');
+    if (!r.ok) {
+      if (r.status >= 500 && await _retryOnceAfterWake(new Error('http ' + r.status))) {
+        clearTimeout(timer);
+        const r2 = await fetch(API + '/analyze-batch', { method: 'POST', body: form, signal: ctrl.signal });
+        if (r2.ok) { await _consumeAnalysis(r2); loader.classList.remove('on'); return; }
+        toast(await readApiError(r2), 'error'); loader.classList.remove('on'); return;
+      }
+      toast(await readApiError(r), 'error'); loader.classList.remove('on'); return;
     }
-    const dups = allCands.filter(c => c.is_duplicate).length;
-    if (dups > 0) toast(dups + ' possible duplicate resume(s) detected (same email/phone).', 'warn');
-    updateTabCounts();
-    showView('rankings');
-    buildSkillFilters();
-    renderCards();
+    await _consumeAnalysis(r);
   } catch (e) {
     clearTimeout(timer);
-    if (e && e.name === 'AbortError') {
-      toast('Analysis timed out after ~3 minutes. The hosted backend may be waking from sleep — it stays warm after the first run, so retry now.', 'error');
-    } else if (isHosted()) {
-      toast('Cannot reach the hosted backend. It may be waking from sleep — wait a minute and retry. (No local server needed.)', 'error');
-    } else {
-      toast('Cannot connect to backend. Make sure the API is running on port 5000.', 'error');
-    }
+    _reportAnalyzeFailure(e);
   }
   loader.classList.remove('on');
+}
+
+function _reportAnalyzeFailure(e) {
+  if (e && e.name === 'AbortError') {
+    toast('Analysis timed out after ~3 minutes. The hosted backend may be waking from sleep — it stays warm after the first run, so retry now.', 'error');
+  } else if (isHosted()) {
+    toast('Cannot reach the hosted backend. It may be waking from sleep — wait a minute and retry. (No local server needed.)', 'error');
+  } else {
+    toast('Cannot connect to backend. Make sure the API is running on port 5000.', 'error');
+  }
+}
+
+// Wait for the backend to answer again (cold free-tier instances take
+// 30–90s) before the retry. Returns false if it never comes up.
+async function _retryOnceAfterWake() {
+  const step = document.getElementById('load-step');
+  step.textContent = 'Backend did not answer — waiting for it to wake...';
+  for (let i = 0; i < 4; i++) {
+    await new Promise(res => setTimeout(res, 5000));
+    if (await checkBackend(30000)) { step.textContent = 'Retrying analysis...'; return true; }
+  }
+  return false;
+}
+
+async function _consumeAnalysis(r) {
+  const data = await r.json();
+  if (data.error) { toast(data.error, 'error'); return; }
+  allCands = data.candidates || [];
+  filteredCands = [...allCands];
+  selectedIds.clear();
+  if ((data.errors || []).length) toast(`${data.errors.length} file(s) skipped: ${data.errors[0].file} — ${data.errors[0].error}`, 'warn');
+  if (data.jd_understanding && data.jd_understanding.summary) {
+    toast('JD understood: ' + data.jd_understanding.summary, 'success');
+  } else if (data.skills_auto_extracted && data.required_skills) {
+    toast('Skills auto-extracted from JD: ' + data.required_skills.join(', '), 'info');
+  }
+  const dups = allCands.filter(c => c.is_duplicate).length;
+  if (dups > 0) toast(dups + ' possible duplicate resume(s) detected (same email/phone).', 'warn');
+  updateTabCounts();
+  showView('rankings');
+  buildSkillFilters();
+  renderCards();
 }
 
 // ── Load existing candidates ───────────────────────────────

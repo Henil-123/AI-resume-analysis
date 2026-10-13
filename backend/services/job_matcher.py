@@ -118,6 +118,37 @@ def _get_embed_model():
     raise RuntimeError(f"No embedding model available: {last_err}")
 
 
+_ST_VERSION_CACHE = []
+
+
+def _sentence_transformers_version():
+    """Installed sentence-transformers version WITHOUT importing it.
+
+    Measured cost of `import sentence_transformers` is ~105s (it drags in
+    torch + transformers). That import used to run inside every scoring
+    request purely to read `__version__` for provenance — which on the
+    512MB/0.5-CPU Render free tier blew the gunicorn worker timeout and
+    surfaced as 502s even when SEMANTIC_ENGINE=tfidf never uses torch.
+
+    `importlib.metadata.version()` reads the installed dist metadata
+    directly: same string, ~0.2s, and it never loads torch into memory.
+    Returns None when the package is absent (the production image).
+    """
+    if _ST_VERSION_CACHE:
+        return _ST_VERSION_CACHE[0]
+    version = None
+    try:
+        from importlib.metadata import PackageNotFoundError, version as _pkg_version
+        try:
+            version = _pkg_version("sentence-transformers")
+        except PackageNotFoundError:
+            version = None
+    except Exception:
+        version = None
+    _ST_VERSION_CACHE.append(version)
+    return version
+
+
 def get_embed_model_metadata():
     """Provenance for reproducibility: engine kind, model id and revision.
 
@@ -129,12 +160,7 @@ def get_embed_model_metadata():
     name = _EMBED_MODEL_NAME
     if not name:
         return {"engine": None, "model": None, "version": None, "dimension": None}
-    version = None
-    try:
-        import sentence_transformers as _st
-        version = getattr(_st, "__version__", None)
-    except Exception:
-        version = None
+    version = _sentence_transformers_version()
     dim = None
     try:
         dim = int(_get_embed_model().encode(["dimension probe"]).shape[1])

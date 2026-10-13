@@ -16,16 +16,20 @@
 3. Environment variables (see `render.yaml`):
    - `APP_ENV=production`, `PORT=5000`
    - `SEMANTIC_ENGINE=tfidf` — **required on free tier**.
-     The BERT engine (BGE/MiniLM via torch) exceeds 512 MB RAM and will
-     502/503 under load. `tfidf` uses a dependency-free cosine engine:
-     no torch import, rankings stay correct via weighted skills + IDF +
-     must-have gate. Local dev leaves it unset for full BERT accuracy.
+     The image no longer ships torch at all (`requirements.txt` is
+     torch-free; ML deps are in `requirements-ml.txt` for local use), so
+     `tfidf` is the only engine available in production. It is also the
+     only one that fits 512 MB. Rankings come from weighted skills + IDF +
+     evidence, not from the transformer.
    - `MONGO_URI` (optional — app falls back to local JSON store),
      `DB_NAME=resume_analyzer`, `JWT_SECRET` (generate), `GROQ_API_KEY`
      (legacy, unused — Groq was retired).
 4. Deploy, then verify:
    - `GET https://<your-service>.onrender.com/health` →
-     `{"status":"ok","spacy_model":"en_core_web_sm", ...}`.
+     `{"status":"ok", ...}`. Must answer in **well under 1s**: that path is
+     polled by Render's deploy check and the Docker `HEALTHCHECK`, so it
+     never imports spaCy or any model. `spacy_model` reads
+     `not-loaded-yet` until the first analysis loads it.
 
 ## 2. Vercel (frontend) — keep exactly ONE project
 
@@ -49,7 +53,8 @@
 | Symptom | Cause | Fix |
 |---|---|---|
 | `OSError: [E050] en_core_web_sm` | model missing | Fixed in code (resilient loader + pinned wheel in `requirements.txt`). Rebuild. |
-| `502` after ~60 s on first analysis | BERT cold-load / OOM on free tier | Set `SEMANTIC_ENGINE=tfidf` on Render (already in `render.yaml` + `Dockerfile`). |
+| `502` after ~60 s on first analysis | BERT cold-load / OOM on free tier | Already fixed: torch is out of the image, `SEMANTIC_ENGINE=tfidf` is in `render.yaml` + `Dockerfile`. |
+| `WORKER TIMEOUT` then 502 for *everything* | A scoring request exceeded the gunicorn budget and killed the only worker; `/health` queued behind it | Already fixed: the ~80 s `import sentence_transformers` inside scoring is gone (`_sentence_transformers_version()` reads dist metadata instead), and 1 worker × 2 threads keeps `/health` answering. |
 | `429` bursts on free Render | QA hammered the free instance | Wait 60 s, retry serially. Not an app bug. |
 | Red X on GitHub commit | a connected Vercel project failing | Keep ONE Vercel project; delete duplicates or set its Root Directory to `frontend`. Code is unaffected. |
 | Vercel login wall on the URL | Deployment Protection on | Vercel → Project → Settings → Deployment Protection → off. |

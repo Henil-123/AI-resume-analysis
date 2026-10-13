@@ -1,5 +1,6 @@
 import logging
 import os
+import sys
 import uuid
 from flask import Flask, request, jsonify, send_from_directory, Response
 from flask_cors import CORS
@@ -534,16 +535,36 @@ def _analyze_single_file(file_path, required_skills, required_experience, job_de
 
 
 # ── Health check ──────────────────────────────────────────────
+# MUST stay cheap. Render polls /health as the deploy health check and the
+# Docker HEALTHCHECK hits it every 30s. The previous version imported
+# services.skill_extractor, whose module body calls spacy.load() (~21s), so
+# the first probe forced a full spaCy load inside the request and boot looked
+# hung. Now spaCy is reported from a cache populated on first real use; a
+# cold process honestly says "not-loaded-yet" instead of loading to answer.
+_SPACY_STATUS_CACHE = []
+
+
+def _spacy_status():
+    """spaCy model name if already imported, else 'not-loaded-yet'.
+
+    Reads sys.modules rather than importing: the cache list is only a
+    placeholder for backwards-compatible introspection, and the module
+    registry is the single source of truth once a request has loaded spaCy.
+    """
+    if _SPACY_STATUS_CACHE:
+        return _SPACY_STATUS_CACHE[0]
+    mod = sys.modules.get("services.skill_extractor")
+    if mod is not None:
+        return getattr(mod, "SPACY_MODEL_NAME", "loaded")
+    return "not-loaded-yet"
+
+
 @app.route("/health", methods=["GET"])
 def health():
     info = {"status": "ok", "message": "AI Resume Analyzer API is running",
             "app_env": os.getenv("APP_ENV", "development"),
-            "semantic_engine": os.getenv("SEMANTIC_ENGINE", "bert")}
-    try:
-        from services.skill_extractor import SPACY_MODEL_NAME
-        info["spacy_model"] = SPACY_MODEL_NAME
-    except Exception as e:
-        info["spacy_model"] = f"unavailable: {e}"
+            "semantic_engine": os.getenv("SEMANTIC_ENGINE", "bert"),
+            "spacy_model": _spacy_status()}
     try:
         from services.job_matcher import embed_status
         info["embed_model"] = embed_status()
